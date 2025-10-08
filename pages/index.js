@@ -2,14 +2,43 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
+import { supabase } from "../lib/supabaseClient";
+import { useRouter } from "next/router";
 
 export default function Home() {
+  const router = useRouter();
+
+  // --- Auth State Hooks ---
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // --- Splash State Hooks ---
   const [showSplash, setShowSplash] = useState(true);
 
+  // --- Auth Check ---
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+      if (!session) router.replace("/login");
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (!session) router.replace("/login");
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, [router]);
+
+  // --- Splash Timer ---
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 1000);
     return () => clearTimeout(timer);
   }, []);
+
+  if (loading) return null;
+  if (!session) return null;
 
   return (
     <div
@@ -105,7 +134,7 @@ export default function Home() {
           letterSpacing: "0.5px",
         }}
       >
-        Made with 💜 by Chain
+        Enjoy Chain
       </footer>
     </div>
   );

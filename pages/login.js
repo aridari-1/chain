@@ -1,82 +1,67 @@
+// pages/login.js
 import { useEffect } from "react";
 import { useRouter } from "next/router";
 import { supabase } from "../lib/supabaseClient";
+import { Auth } from "@supabase/auth-ui-react";
+import { ThemeSupa } from "@supabase/auth-ui-shared";
 
-export default function LoginPage() {
+export default function Login() {
   const router = useRouter();
 
-  // ✅ Capture tokens from the URL hash after redirect
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash) {
-      const params = new URLSearchParams(hash.substring(1));
-      const access_token = params.get("access_token");
-      const refresh_token = params.get("refresh_token");
-
-      if (access_token && refresh_token) {
-        supabase.auth
-          .setSession({
-            access_token,
-            refresh_token,
-          })
-          .then(({ data, error }) => {
-            if (error) {
-              console.error("Auth error:", error);
-            } else {
-              console.log("✅ Session stored:", data);
-              router.push("/"); // redirect to home
-            }
-          });
+    // Check session immediately on mount
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        router.replace("/"); // already logged in → go to main interface
       }
-    }
+    });
+
+    // Listen for auth state changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        router.replace("/"); // redirect to main screen
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, [router]);
 
-  // ✅ Google login with explicit redirectTo
-  async function signInWithGoogle() {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: "http://localhost:3000/login", // force return here
-      },
-    });
-    if (error) console.error("Google login error:", error.message);
-  }
-
-  // ✅ Email login with magic link
-  async function signInWithEmail() {
-    const email = prompt("Enter your email:");
-    if (!email) return;
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        redirectTo: "http://localhost:3000/login", // also return here
-      },
-    });
-    if (error) {
-      console.error("Email login error:", error.message);
-    } else {
-      alert("✅ Check your inbox for the magic link!");
-    }
-  }
-
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen space-y-4">
-      <h1 className="text-2xl font-bold">Login</h1>
+    <div
+      style={{
+        height: "100vh",
+        background: "linear-gradient(135deg, #667eea, #764ba2, #ff6ec4)",
+        backgroundSize: "300% 300%",
+        animation: "gradientBG 12s ease infinite",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+      }}
+    >
+      <h1 style={{ color: "white", fontSize: "1.8rem", marginBottom: "20px" }}>
+        🎤 Voice Chain Login
+      </h1>
 
-      <button
-        onClick={signInWithGoogle}
-        className="px-6 py-3 bg-red-600 text-white rounded shadow"
+      <div
+        style={{
+          background: "rgba(255, 255, 255, 0.2)",
+          padding: "30px",
+          borderRadius: "16px",
+          backdropFilter: "blur(10px)",
+          width: "90%",
+          maxWidth: "400px",
+        }}
       >
-        Sign in with Google
-      </button>
-
-      <button
-        onClick={signInWithEmail}
-        className="px-6 py-3 bg-blue-600 text-white rounded shadow"
-      >
-        Sign in with Email
-      </button>
+        <Auth
+          supabaseClient={supabase}
+          providers={["google"]}
+          appearance={{ theme: ThemeSupa }}
+          theme="dark"
+        />
+      </div>
     </div>
   );
 }
