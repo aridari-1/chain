@@ -1,0 +1,130 @@
+/* Import Google Font */
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap");
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: "Poppins", sans-serif;
+}
+
+/* Make sure the gradient covers the entire app */
+html, body, #__next {
+  height: 100%;
+  width: 100%;
+}
+
+/* Animated gradient background */
+body {
+  background: linear-gradient(135deg, #667eea, #764ba2, #ff6ec4);
+  background-size: 300% 300%;
+  animation: gradientBG 12s ease infinite;
+  color: #333;
+  min-height: 100vh;
+}
+
+@keyframes gradientBG {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Centered container for content */
+.container {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* Card design */
+.card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 20px;
+  margin-top: 20px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+  transition: transform 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-3px);
+}
+
+/* Headings */
+h1, h2 {
+  text-align: center;
+  margin-bottom: 15px;
+  font-weight: 600;
+}
+
+/* Buttons */
+button {
+  background: linear-gradient(90deg, #ff6ec4, #7873f5);
+  border: none;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 50px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+  transition: all 0.3s ease;
+}
+
+button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Input styling */
+input {
+  padding: 10px;
+  border: 2px solid #ddd;
+  border-radius: 12px;
+  outline: none;
+  width: 80%;
+  margin: 10px auto;
+  display: block;
+  transition: border-color 0.3s ease;
+}
+
+input:focus {
+  border-color: #7873f5;
+}
+
+/* Notification banners */
+.banner {
+  padding: 12px;
+  border-radius: 12px;
+  margin: 15px 0;
+  font-weight: 600;
+  text-align: center;
+  animation: fadeIn 0.4s ease;
+}
+
+.banner.error {
+  background: #ffe0e0;
+  color: #d32f2f;
+}
+
+.banner.success {
+  background: #e0ffe8;
+  color: #2e7d32;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Audio player */
+audio {
+  margin-top: 10px;
+  width: 100%;
+  outline: none;
+}
