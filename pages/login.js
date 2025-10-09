@@ -42,7 +42,7 @@ export default function Login() {
       }}
     >
       <h1 style={{ color: "white", fontSize: "1.8rem", marginBottom: "20px" }}>
-        🎤 Voice Chain Login
+         Chain Login
       </h1>
 
       <div

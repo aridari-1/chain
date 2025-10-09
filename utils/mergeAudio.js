@@ -1,103 +1,106 @@
-// Merge multiple audio clips into a single WAV file for playback
+// utils/mergeAudio.js
+import { FFmpeg } from "@ffmpeg/ffmpeg";
+import { fetchFile } from "@ffmpeg/util";
+
 export async function mergeClips(clips) {
-  if (!clips || clips.length === 0) return null;
+  try {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const buffers = [];
 
-  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  let totalDuration = 0;
-  const buffers = [];
-
-  // Fetch + decode each clip
-  for (const clip of clips) {
-    try {
-      const response = await fetch(clip.audio_url);
-      const arrayBuffer = await response.arrayBuffer();
+    // --- Download & decode all clips ---
+    for (const clip of clips) {
+      const res = await fetch(clip.audio_url);
+      const arrayBuffer = await res.arrayBuffer();
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
       buffers.push(audioBuffer);
-      totalDuration += audioBuffer.duration;
-    } catch (err) {
-      console.error("❌ Failed to fetch or decode clip:", clip.audio_url, err);
     }
+
+    // --- Combine sequentially ---
+    const totalLength = buffers.reduce((sum, b) => sum + b.length, 0);
+    const merged = audioContext.createBuffer(1, totalLength, audioContext.sampleRate);
+    let offset = 0;
+    for (const b of buffers) {
+      merged.getChannelData(0).set(b.getChannelData(0), offset);
+      offset += b.length;
+    }
+
+    // --- Convert to WAV (float PCM) ---
+    const wavData = audioBufferToWav(merged);
+    const wavBlob = new Blob([new DataView(wavData)], { type: "audio/wav" });
+
+    // --- Compress using ffmpeg.wasm to MP3 ---
+    const ffmpeg = new FFmpeg();
+    await ffmpeg.load();
+
+    // Write wav to ffmpeg virtual FS
+    await ffmpeg.writeFile("input.wav", await fetchFile(wavBlob));
+
+    // Re-encode to MP3 at 128 kbps
+    await ffmpeg.exec([
+      "-i", "input.wav",
+      "-b:a", "128k",
+      "-ar", "44100",
+      "-ac", "1",
+      "output.mp3"
+    ]);
+
+    const mp3Data = await ffmpeg.readFile("output.mp3");
+    const mp3Blob = new Blob([mp3Data.buffer], { type: "audio/mpeg" });
+
+    // Return playable Object URL
+    return URL.createObjectURL(mp3Blob);
+  } catch (err) {
+    console.error("Merge/compress error:", err);
+    return null;
   }
-
-  if (buffers.length === 0) return null;
-
-  // Create one big buffer
-  const output = audioContext.createBuffer(
-    1,
-    totalDuration * audioContext.sampleRate,
-    audioContext.sampleRate
-  );
-
-  // Copy each clip into the big buffer
-  let offset = 0;
-  for (const buffer of buffers) {
-    output.getChannelData(0).set(buffer.getChannelData(0), offset);
-    offset += buffer.length;
-  }
-
-  // Export merged audio as Blob URL
-  const merged = audioBufferToWav(output);
-  return URL.createObjectURL(new Blob([merged], { type: "audio/wav" }));
 }
 
-// Helper: convert AudioBuffer → WAV ArrayBuffer
+// --- Simple WAV encoder helper ---
 function audioBufferToWav(buffer) {
-  const numOfChan = buffer.numberOfChannels,
-    length = buffer.length * numOfChan * 2 + 44,
-    bufferArray = new ArrayBuffer(length),
-    view = new DataView(bufferArray),
-    channels = [],
-    sampleRate = buffer.sampleRate;
-
-  let offset = 0;
+  const numOfChan = buffer.numberOfChannels;
+  const length = buffer.length * numOfChan * 2 + 44;
+  const bufferArray = new ArrayBuffer(length);
+  const view = new DataView(bufferArray);
+  let pos = 0;
 
   function writeString(s) {
-    for (let i = 0; i < s.length; i++) {
-      view.setUint8(offset + i, s.charCodeAt(i));
-    }
-    offset += s.length;
+    for (let i = 0; i < s.length; i++) view.setUint8(pos + i, s.charCodeAt(i));
+    pos += s.length;
+  }
+  function setUint16(data) {
+    view.setUint16(pos, data, true);
+    pos += 2;
+  }
+  function setUint32(data) {
+    view.setUint32(pos, data, true);
+    pos += 4;
   }
 
-  function floatTo16BitPCM(output, offset, input) {
-    for (let i = 0; i < input.length; i++, offset += 2) {
-      let s = Math.max(-1, Math.min(1, input[i]));
-      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-    }
-  }
-
-  // WAV header
   writeString("RIFF");
-  view.setUint32(offset, 36 + buffer.length * numOfChan * 2, true);
-  offset += 4;
+  setUint32(length - 8);
   writeString("WAVE");
   writeString("fmt ");
-  view.setUint32(offset, 16, true);
-  offset += 4;
-  view.setUint16(offset, 1, true);
-  offset += 2;
-  view.setUint16(offset, numOfChan, true);
-  offset += 2;
-  view.setUint32(offset, sampleRate, true);
-  offset += 4;
-  view.setUint32(offset, sampleRate * numOfChan * 2, true);
-  offset += 4;
-  view.setUint16(offset, numOfChan * 2, true);
-  offset += 2;
-  view.setUint16(offset, 16, true);
-  offset += 2;
+  setUint32(16);
+  setUint16(1);
+  setUint16(numOfChan);
+  setUint32(buffer.sampleRate);
+  setUint32(buffer.sampleRate * 2 * numOfChan);
+  setUint16(numOfChan * 2);
+  setUint16(16);
   writeString("data");
-  view.setUint32(offset, buffer.length * numOfChan * 2, true);
-  offset += 4;
+  setUint32(length - pos - 4);
 
-  // Write interleaved data
-  for (let i = 0; i < numOfChan; i++) {
-    channels.push(buffer.getChannelData(i));
-  }
+  const channels = [];
+  for (let i = 0; i < numOfChan; i++) channels.push(buffer.getChannelData(i));
 
-  for (let i = 0; i < buffer.length; i++) {
-    for (let j = 0; j < numOfChan; j++) {
-      floatTo16BitPCM(view, offset, channels[j].subarray(i, i + 1));
+  let offset = 0;
+  while (pos < length) {
+    for (let i = 0; i < numOfChan; i++) {
+      const sample = Math.max(-1, Math.min(1, channels[i][offset]));
+      view.setInt16(pos, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      pos += 2;
     }
+    offset++;
   }
 
   return bufferArray;
