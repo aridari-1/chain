@@ -1,309 +1,351 @@
-// pages/friends/index.js
+import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/router";
 import { supabase } from "../../lib/supabaseClient";
+import Recorder from "../../components/Recorder";
+import { mergeClips } from "../../utils/mergeAudio";
+import { Settings } from "lucide-react";
 
-export default function Friends() {
-  const router = useRouter();
-  const [limit, setLimit] = useState(5);
-  const [creating, setCreating] = useState(false);
-  const [joinInput, setJoinInput] = useState("");
-  const [shareId, setShareId] = useState(null);
-  const [copied, setCopied] = useState(false);
+export default function FriendsPage() {
+  // --- state management ---
+  const [mode, setMode] = useState("menu"); // menu | create | join
+  const [chainId, setChainId] = useState(null);
+  const [clips, setClips] = useState([]);
+  const [mergedUrl, setMergedUrl] = useState(null);
+  const [inviteLink, setInviteLink] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
+  const [joinId, setJoinId] = useState("");
 
-  // State to toggle visibility
-  const [showCreateOptions, setShowCreateOptions] = useState(false);
-  const [showJoinOptions, setShowJoinOptions] = useState(false);
-  const [showInitialButtons, setShowInitialButtons] = useState(true);
+  // --- realtime refresh for active chain ---
+  useEffect(() => {
+    if (!chainId) return;
+    refreshClips(chainId);
+    const channel = supabase
+      .channel("friends-chain")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "clips", filter: `chain_id=eq.${chainId}` },
+        () => refreshClips(chainId)
+      )
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [chainId]);
 
-  async function createChain() {
-    try {
-      setCreating(true);
-      const { data: auth } = await supabase.auth.getUser();
-      if (!auth?.user) {
-        alert("Please sign in first.");
-        setCreating(false);
-        return;
-      }
-      if (limit < 5 || limit > 10) {
-        alert("Limit must be between 5 and 10.");
-        setCreating(false);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("chains")
-        .insert([{ type: "friend", max_clips: limit, creator_id: auth.user.id }])
-        .select("id")
-        .single();
-
-      if (error) {
-        console.error(error);
-        alert("❌ Error creating chain");
-        setCreating(false);
-        return;
-      }
-
-      setShareId(data.id);
-      setTimeout(() => router.push(`/chain/${data.id}`), 600);
-    } catch (e) {
-      console.error(e);
-      alert("❌ Unexpected error");
-    } finally {
-      setCreating(false);
+  async function refreshClips(id) {
+    const { data } = await supabase
+      .from("clips")
+      .select("*")
+      .eq("chain_id", id)
+      .order("created_at", { ascending: true });
+    setClips(data || []);
+    if (data && data.length > 0) {
+      const url = await mergeClips(data);
+      setMergedUrl(url);
     }
   }
 
+  // --- create new chain ---
+  async function handleCreateChain() {
+    const { data, error } = await supabase
+      .from("chains")
+      .insert([{ type: "friend", max_clips: 10 }])
+      .select()
+      .single();
+    if (!error && data) {
+      setChainId(data.id);
+      setInviteLink(`${window.location.origin}/friendChain/${data.id}`);
+      setMode("create");
+    }
+  }
+
+  // --- join chain ---
   function handleJoin() {
-    const raw = (joinInput || "").trim();
-    if (!raw) return;
-    const match = raw.match(
+    if (!joinId.trim()) {
+      alert("Please paste a chain ID or link.");
+      return;
+    }
+    const match = joinId.match(
       /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
     );
-    const id = match ? match[0] : raw;
-    router.push(`/chain/${id}`);
+    const id = match ? match[0] : joinId.trim();
+    setChainId(id);
+    setMode("join");
   }
 
+  // --- copy link + manual merge (creator only) ---
   function copyLink() {
-    if (!shareId) return;
-    const url = `${window.location.origin}/chain/${shareId}`;
-    navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+    navigator.clipboard.writeText(inviteLink);
+    alert("✅ Link copied!");
   }
 
+  async function handleManualMerge() {
+    await refreshClips(chainId);
+    alert("✅ All clips merged!");
+  }
+
+  // --- base UI ---
   return (
     <div
       style={{
         minHeight: "100vh",
         background: "linear-gradient(135deg, #667eea, #764ba2, #ff6ec4)",
         backgroundSize: "300% 300%",
-        animation: "friendsGradient 12s ease infinite",
+        animation: "gradientBG 12s ease infinite",
         display: "flex",
-        alignItems: "center",
+        flexDirection: "column",
         justifyContent: "center",
-        padding: 20,
-        fontFamily: "Poppins, sans-serif",
+        alignItems: "center",
+        padding: "20px",
       }}
     >
-      <style>{`
-        @keyframes friendsGradient {
-          0% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
-        }
-        @keyframes pulseButton {
-          0%, 100% { transform: scale(1); box-shadow: 0 0 8px rgba(255,255,255,0.4); }
-          50% { transform: scale(1.05); box-shadow: 0 0 20px rgba(255,255,255,0.8); }
-        }
-      `}</style>
-
-      {/* 🌟 INITIAL VIEW — Two Centered Buttons */}
-      {showInitialButtons && (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "25px",
-            alignItems: "center",
-          }}
-        >
-          <button
-            onClick={() => {
-              setShowInitialButtons(false);
-              setShowCreateOptions(true);
-            }}
+      <AnimatePresence>
+        {mode === "menu" && (
+          <motion.div
+            key="menu"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
             style={{
-              background: "linear-gradient(90deg, #ffb6ff, #b344ff, #667eea)",
-              backgroundSize: "300% 300%",
-              animation: "pulseButton 3s ease-in-out infinite",
-              border: "none",
-              color: "white",
-              fontSize: "1.3rem",
-              fontWeight: 600,
-              padding: "18px 50px",
-              borderRadius: "50px",
-              cursor: "pointer",
-              boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "40px",
             }}
           >
-            ➕ Create a Friend Chain
-          </button>
+            {/* original buttons preserved */}
+            <Link href="#">
+              <button
+                onClick={handleCreateChain}
+                style={{
+                  background: "white",
+                  color: "#764ba2",
+                  borderRadius: "50px",
+                  border: "none",
+                  padding: "15px 50px",
+                  fontSize: "1.2rem",
+                  fontWeight: 600,
+                }}
+              >
+                ➕ Create Friend Chain
+              </button>
+            </Link>
 
-          <button
-            onClick={() => {
-              setShowInitialButtons(false);
-              setShowJoinOptions(true);
-            }}
-            style={{
-              background: "linear-gradient(90deg, #ff9a9e, #fad0c4, #a1c4fd)",
-              backgroundSize: "300% 300%",
-              animation: "pulseButton 3s ease-in-out infinite",
-              border: "none",
-              color: "white",
-              fontSize: "1.3rem",
-              fontWeight: 600,
-              padding: "18px 50px",
-              borderRadius: "50px",
-              cursor: "pointer",
-              boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
-            }}
+            <div style={{ textAlign: "center" }}>
+              <input
+                type="text"
+                value={joinId}
+                onChange={(e) => setJoinId(e.target.value)}
+                placeholder="Paste join link or ID"
+                style={{
+                  padding: "10px",
+                  borderRadius: "12px",
+                  border: "none",
+                  outline: "none",
+                  textAlign: "center",
+                  width: "260px",
+                  marginBottom: "10px",
+                }}
+              />
+              <br />
+              <button
+                onClick={handleJoin}
+                style={{
+                  background: "rgba(255,255,255,0.2)",
+                  border: "2px solid white",
+                  borderRadius: "50px",
+                  color: "white",
+                  fontSize: "1.1rem",
+                  padding: "10px 35px",
+                  fontWeight: "600",
+                  backdropFilter: "blur(8px)",
+                }}
+              >
+                🔗 Join Friend Chain
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ---- CREATE INTERFACE ---- */}
+        {mode === "create" && (
+          <motion.div
+            key="create"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.6 }}
+            style={{ width: "100%", position: "relative" }}
           >
-            🔗 Join a Friend Chain
-          </button>
-        </div>
-      )}
-
-      {/* Existing Logic (Unchanged) */}
-      {!showInitialButtons && (
-        <div
-          style={{
-            width: "100%",
-            maxWidth: 980,
-            display: "grid",
-            gridTemplateColumns: "1fr",
-            gap: 20,
-          }}
-        >
-          {/* CREATE SECTION */}
-          {showCreateOptions && (
+            {/* top bar */}
             <div
               style={{
-                background: "rgba(255,255,255,0.15)",
-                borderRadius: 20,
-                padding: 24,
-                color: "#fff",
-                boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
-                backdropFilter: "blur(6px)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "10px 20px",
               }}
             >
-              <h1 style={{ margin: 0, fontSize: 24, alignItems: "center" }}>set your clip limits</h1>
-              <p style={{ opacity: 0.9, marginTop: 8 }}>
-                
-              </p>
+              <h2 style={{ color: "white", fontSize: "1.1rem", fontWeight: 600 }}>
+                Make your record in the group chain.
+              </h2>
 
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14 }}>
-                <label style={{ fontWeight: 600 }}>Clip Limit:</label>
-                <input
-                  type="number"
-                  min={5}
-                  max={10}
-                  value={limit}
-                  onChange={(e) => setLimit(Number(e.target.value))}
-                  style={{
-                    width: 90,
-                    borderRadius: 10,
-                    border: "none",
-                    padding: "8px 10px",
-                    textAlign: "center",
-                  }}
-                />
+              {/* settings icon visible only for creator */}
+              <div style={{ position: "relative" }}>
                 <button
-                  onClick={createChain}
-                  disabled={creating}
+                  onClick={() => setShowSettings(!showSettings)}
                   style={{
-                    marginLeft: "auto",
-                    background: "#fff",
-                    color: "#7c4ba2ff",
+                    background: "transparent",
                     border: "none",
-                    borderRadius: 999,
-                    padding: "10px 20px",
-                    fontWeight: 700,
                     cursor: "pointer",
                   }}
                 >
-                  {creating ? "Creating..." : "Create"}
+                  <Settings color="white" size={26} />
                 </button>
-              </div>
 
-              {shareId && (
-                <div
-                  style={{
-                    marginTop: 12,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    background: "rgba(255,255,255,0.25)",
-                    padding: "8px 10px",
-                    borderRadius: 12,
-                  }}
-                >
+                {showSettings && (
                   <div
                     style={{
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
+                      position: "absolute",
+                      top: "40px",
+                      right: "0",
+                      background: "rgba(255, 255, 255, 0.15)",
+                      borderRadius: "12px",
+                      padding: "15px",
+                      backdropFilter: "blur(10px)",
+                      color: "white",
+                      fontSize: "0.9rem",
+                      boxShadow: "0 4px 15px rgba(0,0,0,0.25)",
+                      zIndex: 50,
                     }}
                   >
-                    {`${typeof window !== "undefined" ? window.location.origin : ""}/chain/${shareId}`}
+                    <button
+                      onClick={copyLink}
+                      style={{
+                        background: "white",
+                        color: "#764ba2",
+                        border: "none",
+                        borderRadius: "8px",
+                        padding: "6px 10px",
+                        marginBottom: "10px",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        width: "100%",
+                      }}
+                    >
+                      📋 Copy Share Link
+                    </button>
+
+                    <button
+                      onClick={handleManualMerge}
+                      style={{
+                        background: "linear-gradient(90deg, #ff6ec4, #7873f5)",
+                        border: "none",
+                        color: "white",
+                        borderRadius: "8px",
+                        padding: "6px 10px",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        width: "100%",
+                      }}
+                    >
+                      🎧 Merge All Clips
+                    </button>
                   </div>
-                  <button
-                    onClick={copyLink}
-                    style={{
-                      background: "#fff",
-                      color: "#764ba2",
-                      border: "none",
-                      borderRadius: 10,
-                      padding: "6px 10px",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {copied ? "✅ Copied" : "📋 Copy"}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* JOIN SECTION */}
-          {showJoinOptions && (
-            <div
-              style={{
-                background: "rgba(255,255,255,0.15)",
-                borderRadius: 20,
-                padding: 24,
-                color: "#fff",
-                boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
-                backdropFilter: "blur(6px)",
-              }}
-            >
-              <h2 style={{ margin: 0, fontSize: 22 }}>🔗 Join a Friend Chain</h2>
-              <p style={{ opacity: 0.9, marginTop: 8 }}>
-                Enter your friend’s invite link 
-              </p>
-
-              <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-                <input
-                  value={joinInput}
-                  onChange={(e) => setJoinInput(e.target.value)}
-                  placeholder="Paste invite link "
-                  style={{
-                    flex: 1,
-                    border: "none",
-                    borderRadius: 12,
-                    padding: "10px 12px",
-                  }}
-                />
-                <button
-                  onClick={handleJoin}
-                  style={{
-                    background: "#fff",
-                    color: "#764ba2",
-                    border: "none",
-                    borderRadius: 999,
-                    padding: "10px 18px",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Join
-                </button>
+                )}
               </div>
             </div>
-          )}
-        </div>
-      )}
+
+            {/* record button */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                marginTop: "100px",
+              }}
+            >
+              <Recorder chainId={chainId} />
+            </div>
+
+            {/* audio player */}
+            <div
+              style={{
+                marginTop: "180px",
+                display: "flex",
+                justifyContent: "center",
+              }}
+            >
+              {mergedUrl && (
+                <audio
+                  controls
+                  src={mergedUrl}
+                  style={{
+                    width: "80%",
+                    maxWidth: "500px",
+                    borderRadius: "12px",
+                  }}
+                />
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* ---- JOIN INTERFACE ---- */}
+        {mode === "join" && (
+          <motion.div
+            key="join"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.6 }}
+            style={{ width: "100%", position: "relative" }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "10px 20px",
+              }}
+            >
+              <h2 style={{ color: "white", fontSize: "1.1rem", fontWeight: 600 }}>
+                Make your record in the group chain.
+              </h2>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                marginTop: "100px",
+              }}
+            >
+              <Recorder chainId={chainId} />
+            </div>
+
+            <div
+              style={{
+                marginTop: "180px",
+                display: "flex",
+                justifyContent: "center",
+              }}
+            >
+              {mergedUrl && (
+                <audio
+                  controls
+                  src={mergedUrl}
+                  style={{
+                    width: "80%",
+                    maxWidth: "500px",
+                    borderRadius: "12px",
+                  }}
+                />
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

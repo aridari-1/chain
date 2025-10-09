@@ -24,25 +24,20 @@ self.__BUILD_MANIFEST = {
       "static/chunks/main.js",
       "static/chunks/pages/_error.js"
     ],
-    "/admin/stats": [
-      "static/chunks/webpack.js",
-      "static/chunks/main.js",
-      "static/chunks/pages/admin/stats.js"
-    ],
     "/chain/[id]": [
       "static/chunks/webpack.js",
       "static/chunks/main.js",
       "static/chunks/pages/chain/[id].js"
     ],
+    "/friendChain/[chainId]": [
+      "static/chunks/webpack.js",
+      "static/chunks/main.js",
+      "static/chunks/pages/friendChain/[chainId].js"
+    ],
     "/friends": [
       "static/chunks/webpack.js",
       "static/chunks/main.js",
       "static/chunks/pages/friends.js"
-    ],
-    "/login": [
-      "static/chunks/webpack.js",
-      "static/chunks/main.js",
-      "static/chunks/pages/login.js"
     ]
   },
   "ampFirstPages": []

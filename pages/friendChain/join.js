@@ -1,17 +1,41 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
+import { supabase } from "../../lib/supabaseClient";
+import Recorder from "../../components/Recorder";
+import { mergeClips } from "../../utils/mergeAudio";
 
 export default function JoinFriendChain() {
-  const [link, setLink] = useState("");
   const router = useRouter();
+  const { chainId } = router.query;
 
-  function handleJoin() {
-    const match = link.match(
-      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
-    );
-    const id = match ? match[0] : link.trim();
-    if (!id) return alert("❌ Invalid link or ID");
-    router.push(`/friendChain/${id}?joined=true`);
+  const [clips, setClips] = useState([]);
+  const [mergedUrl, setMergedUrl] = useState(null);
+
+  // 🔹 Load all clips + auto-refresh
+  useEffect(() => {
+    if (!chainId) return;
+    refreshClips(chainId);
+
+    const channel = supabase
+      .channel("join-clips")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "clips", filter: `chain_id=eq.${chainId}` },
+        () => refreshClips(chainId)
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [chainId]);
+
+  async function refreshClips(id) {
+    const { data } = await supabase
+      .from("clips")
+      .select("*")
+      .eq("chain_id", id)
+      .order("created_at", { ascending: true });
+
+    setClips(data || []);
   }
 
   return (
@@ -21,41 +45,63 @@ export default function JoinFriendChain() {
         background: "linear-gradient(135deg, #667eea, #764ba2, #ff6ec4)",
         backgroundSize: "300% 300%",
         animation: "gradientBG 12s ease infinite",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        alignItems: "center",
+        position: "relative",
+        overflow: "hidden",
+        padding: "20px",
       }}
     >
-      <input
-        type="text"
-        value={link}
-        onChange={(e) => setLink(e.target.value)}
-        placeholder="Paste chain link or ID"
+      {/* 🔹 Top message only */}
+      <div
         style={{
-          width: "70%",
-          maxWidth: "400px",
-          padding: "10px",
-          borderRadius: "12px",
-          border: "none",
-          textAlign: "center",
-          fontSize: "1rem",
-        }}
-      />
-      <button
-        onClick={handleJoin}
-        style={{
-          marginTop: "20px",
-          background: "white",
-          color: "#764ba2",
-          border: "none",
-          borderRadius: "50px",
-          padding: "12px 40px",
-          fontWeight: "600",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "10px 20px",
         }}
       >
-        Join
-      </button>
+        <h2 style={{ color: "white", fontSize: "1.1rem", fontWeight: 600 }}>
+          Make your record in the group chain.
+        </h2>
+      </div>
+
+      {/* 🔹 Record button centered */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          marginTop: "80px",
+        }}
+      >
+        <Recorder chainId={chainId} />
+      </div>
+
+      {/* 🔹 List all clips */}
+      <div
+        style={{
+          marginTop: "140px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: "10px",
+        }}
+      >
+        {clips.length === 0 && (
+          <p style={{ color: "white", opacity: 0.8 }}>No clips yet.</p>
+        )}
+        {clips.map((clip) => (
+          <audio
+            key={clip.id}
+            controls
+            src={clip.audio_url}
+            style={{
+              width: "80%",
+              maxWidth: "500px",
+              borderRadius: "10px",
+            }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
