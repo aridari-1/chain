@@ -177,7 +177,7 @@ export default function Friends() {
                 backdropFilter: "blur(6px)",
               }}
             >
-              <h1 style={{ margin: 0, fontSize: 24, alignItems: "center" }}>set your clips climits</h1>
+              <h1 style={{ margin: 0, fontSize: 24, alignItems: "center" }}>set your clip limits</h1>
               <p style={{ opacity: 0.9, marginTop: 8 }}>
                 
               </p>
@@ -204,7 +204,7 @@ export default function Friends() {
                   style={{
                     marginLeft: "auto",
                     background: "#fff",
-                    color: "#764ba2",
+                    color: "#7c4ba2ff",
                     border: "none",
                     borderRadius: 999,
                     padding: "10px 20px",
