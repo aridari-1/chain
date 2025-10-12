@@ -9,10 +9,10 @@ export default function Login() {
   const router = useRouter();
 
   useEffect(() => {
-    // Check session immediately on mount
+    // Check if user is already signed in
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        router.replace("/"); // already logged in → go to main interface
+        router.replace("/global"); // ✅ redirect to global after login
       }
     });
 
@@ -21,7 +21,7 @@ export default function Login() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
-        router.replace("/"); // redirect to main screen
+        router.replace("/global"); // ✅ redirect to global after login
       }
     });
 
@@ -39,11 +39,15 @@ export default function Login() {
         flexDirection: "column",
         justifyContent: "center",
         alignItems: "center",
+        fontFamily: "Poppins, sans-serif",
       }}
     >
-      <h1 style={{ color: "white", fontSize: "1.8rem", marginBottom: "20px" }}>
-         Chain Login
+      <h1 style={{ color: "white", fontSize: "2.2rem", marginBottom: "20px" }}>
+        🎤 Chain
       </h1>
+      <p style={{ color: "rgba(255,255,255,0.8)", marginBottom: "25px" }}>
+        One world. One voice. Sign in with Google to join.
+      </p>
 
       <div
         style={{
@@ -57,9 +61,15 @@ export default function Login() {
       >
         <Auth
           supabaseClient={supabase}
-          providers={["google"]}
-          appearance={{ theme: ThemeSupa }}
+          providers={["google"]} // ✅ Google-only login
+          appearance={{
+            theme: ThemeSupa,
+            style: {
+              button: { background: "white", color: "#764ba2" },
+            },
+          }}
           theme="dark"
+          onlyThirdPartyProviders={true} // ✅ hides email fields
         />
       </div>
     </div>

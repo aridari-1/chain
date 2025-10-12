@@ -8,14 +8,14 @@ export default function Header() {
         background: "linear-gradient(90deg, #667eea, #764ba2, #ff6ec4)",
         padding: "15px 30px",
         display: "flex",
-        alignItems: "center",
+        alignItems: "topleft",
         justifyContent: "space-between",
         color: "white",
         boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
       }}
     >
       {/* Logo and title */}
-      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+      <div style={{ display: "flex", alignItems: "topleft", gap: "12px" }}>
         <Image
           src="/chain-logo.png"
           alt="Voice Chain Logo"

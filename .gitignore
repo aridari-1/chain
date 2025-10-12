@@ -24,3 +24,5 @@ Thumbs.db
 
 # Vercel and other deployment caches
 .vercel/
+
+.vercel

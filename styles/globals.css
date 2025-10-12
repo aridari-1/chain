@@ -128,3 +128,35 @@ audio {
   width: 100%;
   outline: none;
 }
+/* ===== Hydration-safe styles for GlobalChain page ===== */
+
+@keyframes gradientMove {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ✅ Responsive mobile styles */
+@media (max-width: 600px) {
+  .global-container h1 {
+    font-size: 1.8rem;
+  }
+
+  .global-container h2 {
+    font-size: 1.3rem;
+  }
+
+  .global-container p {
+    font-size: 0.95rem;
+    line-height: 1.4;
+  }
+
+  .global-container audio {
+    width: 100% !important;
+  }
+
+  .global-card {
+    padding: 20px 14px !important;
+    border-radius: 18px !important;
+  }
+}

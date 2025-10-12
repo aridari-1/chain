@@ -1,110 +1,159 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 
-export default function Recorder({ chainId }) {
+export default function Recorder({ chainId, mode }) {
   const [recording, setRecording] = useState(false);
-  const [countdown, setCountdown] = useState(0);
-  const mediaRecorderRef = useRef(null);
-  const chunksRef = useRef([]);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [hasRecorded, setHasRecorded] = useState(false);
+  const [message, setMessage] = useState("");
+  const chunks = useRef([]);
 
-  async function startRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const AWS_PUBLIC_URL = process.env.NEXT_PUBLIC_AWS_S3_PUBLIC_URL;
 
-      // ✅ Prefer mp4 for iOS; fallback to webm for others
-      const options = { mimeType: "audio/mp4" };
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        options.mimeType = "audio/webm";
-      }
-
-      const mediaRecorder = new MediaRecorder(stream, options);
-      mediaRecorderRef.current = mediaRecorder;
-      chunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
-        const fileExt = mediaRecorder.mimeType.includes("mp4") ? "m4a" : "webm";
-        const fileName = `${Date.now()}.${fileExt}`;
-        const { data, error } = await supabase.storage
+  useEffect(() => {
+    const checkExisting = async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData?.user) {
+        const { data } = await supabase
           .from("clips")
-          .upload(fileName, blob, { upsert: true });
+          .select("id, created_at")
+          .eq("user_id", userData.user.id)
+          .eq("chain_id", chainId)
+          .order("created_at", { ascending: false })
+          .limit(1);
 
-        if (!error) {
-          const { data: publicUrl } = supabase.storage.from("clips").getPublicUrl(fileName);
-          await supabase.from("clips").insert([{ chain_id: chainId, audio_url: publicUrl.publicUrl }]);
+        if (data && data.length > 0) {
+          const lastClip = data[0];
+          const clipTime = new Date(lastClip.created_at);
+          const now = new Date();
+          const diffHours = (now - clipTime) / (1000 * 60 * 60);
+
+          if (diffHours < 24) {
+            setHasRecorded(true);
+            setMessage("✅ You have already contributed. Try again after 24h.");
+          } else {
+            await supabase.from("clips").delete().eq("id", lastClip.id);
+            setHasRecorded(false);
+          }
         }
-      };
+      }
+    };
+    if (chainId) checkExisting();
+  }, [chainId]);
 
-      mediaRecorder.start();
-      setRecording(true);
-      setCountdown(6);
-
-      // 6-second countdown
-      let time = 6;
-      const timer = setInterval(() => {
-        time -= 1;
-        setCountdown(time);
-        if (time <= 0) {
-          clearInterval(timer);
-          stopRecording();
-        }
-      }, 1000);
-    } catch (err) {
-      console.error("Mic error:", err);
-      alert("Unable to access microphone");
+  const startRecording = async () => {
+    if (hasRecorded) {
+      setMessage("You already recorded today!");
+      return;
     }
-  }
 
-  function stopRecording() {
-    const recorder = mediaRecorderRef.current;
-    if (recorder && recorder.state !== "inactive") recorder.stop();
-    setRecording(false);
-    setCountdown(0);
-  }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    const localChunks = [];
+
+    recorder.ondataavailable = (e) => localChunks.push(e.data);
+    recorder.onstop = async () => {
+      const blob = new Blob(localChunks, { type: "audio/webm" });
+      const fileName = `clip-${Date.now()}.webm`;
+
+      try {
+        // ✅ Secure upload using presigned URL
+        const presignRes = await fetch(`/api/s3-upload?filename=${fileName}&type=audio/webm`);
+        const { uploadUrl } = await presignRes.json();
+
+        await fetch(uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "audio/webm" },
+          body: blob,
+        });
+
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData?.user?.id;
+
+        await supabase.from("clips").insert([
+          {
+            chain_id: chainId,
+            user_id: userId,
+            audio_url: `${AWS_PUBLIC_URL}/${fileName}`,
+          },
+        ]);
+
+        // ✅ Trigger automatic reload + merge in global chain
+        window.dispatchEvent(new Event("clipUploaded"));
+        setHasRecorded(true);
+        setMessage("✅ Uploaded successfully! Added to All Voices.");
+      } catch (err) {
+        console.error("❌ Failed to upload to S3:", err);
+        setMessage("❌ Failed to upload to S3: " + err.message);
+      }
+    };
+
+    recorder.start();
+    setRecording(true);
+    setMediaRecorder(recorder);
+    setMessage("🎙️ Recording...");
+
+    // ✅ Stop automatically after 6 seconds
+    setTimeout(() => {
+      if (recorder.state === "recording") {
+        recorder.stop();
+        setRecording(false);
+        setMessage("Recording stopped (6s limit).");
+      }
+    }, 6000);
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      mediaRecorder.stop();
+      setRecording(false);
+      setMessage("Recording stopped manually.");
+    }
+  };
 
   return (
-    <div style={{ textAlign: "center" }}>
-      {!recording ? (
-        <button
-          onClick={startRecording}
-          style={{
-            background: "#4CAF50",
-            color: "white",
-            padding: "18px 36px",
-            border: "none",
-            borderRadius: "50%",
-            fontSize: "1.2rem",
-            cursor: "pointer",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-          }}
-        >
-          🎤
-        </button>
+    <div style={{ marginTop: "20px", textAlign: "center" }}>
+      {!hasRecorded ? (
+        <>
+          {!recording ? (
+            <button
+              onClick={startRecording}
+              style={{
+                background: "white",
+                color: "#764ba2",
+                padding: "14px 35px",
+                borderRadius: "40px",
+                border: "none",
+                cursor: "pointer",
+                fontSize: "1rem",
+                fontWeight: 600,
+                boxShadow: "0 4px 15px rgba(0,0,0,0.2)",
+              }}
+            >
+              🎤 Start Recording
+            </button>
+          ) : (
+            <button
+              onClick={stopRecording}
+              style={{
+                background: "#ff6ec4",
+                color: "white",
+                padding: "14px 35px",
+                borderRadius: "40px",
+                border: "none",
+                cursor: "pointer",
+                fontSize: "1rem",
+                fontWeight: 600,
+                boxShadow: "0 4px 15px rgba(0,0,0,0.2)",
+              }}
+            >
+              ⏹️ Stop
+            </button>
+          )}
+        </>
       ) : (
-        <button
-          onClick={stopRecording}
-          style={{
-            background: "#E53935",
-            color: "white",
-            padding: "18px 36px",
-            border: "none",
-            borderRadius: "50%",
-            fontSize: "1.2rem",
-            cursor: "pointer",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-          }}
-        >
-          ⏹
-        </button>
-      )}
-      {recording && (
-        <div style={{ color: "white", marginTop: "10px", fontSize: "1rem" }}>
-          {countdown}s
-        </div>
+        // ✅ Show message once only
+        <p style={{ marginTop: "20px", opacity: 0.9 }}>{message}</p>
       )}
     </div>
   );

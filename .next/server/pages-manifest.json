@@ -2,8 +2,7 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/friendChain/[chainId]": "pages/friendChain/[chainId].js",
-  "/friends": "pages/friends.js",
-  "/chain/[id]": "pages/chain/[id].js",
-  "/": "pages/index.js"
+  "/global": "pages/global.js",
+  "/": "pages/index.js",
+  "/login": "pages/login.js"
 }

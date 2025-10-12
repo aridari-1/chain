@@ -8,6 +8,8 @@
     "start": "next start"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.908.0",
+    "@aws-sdk/s3-request-presigner": "^3.908.0",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
     "@supabase/auth-ui-react": "^0.4.7",
