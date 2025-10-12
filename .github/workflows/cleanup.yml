@@ -1,0 +1,14 @@
+name: Hourly Cleanup
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # every hour
+  workflow_dispatch:       # allows manual trigger from Actions tab
+
+jobs:
+  call-supabase-cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call cleanup function
+        run: |
+          curl -fsS -X GET "https://awfweymlejtjqpboalpw.functions.supabase.co/cleanup_old_clips"
