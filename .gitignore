@@ -37,3 +37,4 @@ supabase/.env
 coverage/
 dist/
 tmp/
+.vercel

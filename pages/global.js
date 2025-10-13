@@ -4,39 +4,20 @@ import { supabase } from "../lib/supabaseClient";
 import Recorder from "../components/Recorder";
 import { mergeClips } from "../utils/mergeAudio";
 
+// ✅ Permanent Global Chain ID from Supabase
+const GLOBAL_CHAIN_ID = "4a6328ce-89cc-45db-9960-320fe932976a";
+
 export default function GlobalChain() {
-  const [chainId, setChainId] = useState(null);
   const [clips, setClips] = useState([]);
   const [mergedUrl, setMergedUrl] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const AWS_PUBLIC_URL = process.env.NEXT_PUBLIC_AWS_S3_PUBLIC_URL;
 
+  // ✅ Load all clips from the one global chain
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase
-        .from("chains")
-        .select("id")
-        .eq("type", "global")
-        .limit(1)
-        .maybeSingle();
-
-      if (error) console.error(error);
-
-      if (data?.id) {
-        setChainId(data.id);
-        await loadClips(data.id);
-      } else {
-        const { data: created, error: insertError } = await supabase
-          .from("chains")
-          .insert([{ type: "global" }])
-          .select()
-          .single();
-
-        if (insertError) console.error(insertError);
-        if (created?.id) setChainId(created.id);
-      }
-
+      await loadClips(GLOBAL_CHAIN_ID);
       setLoading(false);
     })();
   }, []);
@@ -65,35 +46,31 @@ export default function GlobalChain() {
     }
   }
 
-  // ✅ Auto-refresh when a new clip uploads manually (existing logic)
+  // ✅ Auto-refresh when a new clip uploads manually (from Recorder.js)
   useEffect(() => {
-    const handleNewClip = () => {
-      if (chainId) loadClips(chainId);
-    };
+    const handleNewClip = () => loadClips(GLOBAL_CHAIN_ID);
     window.addEventListener("clipUploaded", handleNewClip);
     return () => window.removeEventListener("clipUploaded", handleNewClip);
-  }, [chainId]);
+  }, []);
 
-  // ✅ NEW: Supabase Realtime subscription (auto merge for all users)
+  // ✅ Supabase realtime listener (auto merge for all users)
   useEffect(() => {
-    if (!chainId) return;
-
     const channel = supabase
       .channel("realtime:clips")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "clips" },
         (payload) => {
-          console.log("📡 New clip added:", payload.new);
-          loadClips(chainId); // auto-refresh and re-merge
+          if (payload.new.chain_id === GLOBAL_CHAIN_ID) {
+            console.log("📡 New clip added:", payload.new);
+            loadClips(GLOBAL_CHAIN_ID);
+          }
         }
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [chainId]);
+    return () => supabase.removeChannel(channel);
+  }, []);
 
   return (
     <div
@@ -162,14 +139,12 @@ export default function GlobalChain() {
           Add your voice to the world 🌍
         </h1>
 
-        <p/>
-          
-
         {loading ? (
           <p>Loading…</p>
         ) : (
           <>
-            <Recorder chainId={chainId} mode="global" />
+            {/* ✅ No need to pass chainId anymore */}
+            <Recorder mode="global" />
 
             <div
               style={{

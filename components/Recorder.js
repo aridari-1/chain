@@ -1,7 +1,10 @@
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 
-export default function Recorder({ chainId, mode }) {
+// ✅ Permanent global chain ID
+const GLOBAL_CHAIN_ID = "4a6328ce-89cc-45db-9960-320fe932976a";
+
+export default function Recorder({ mode }) {
   const [recording, setRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [hasRecorded, setHasRecorded] = useState(false);
@@ -10,6 +13,7 @@ export default function Recorder({ chainId, mode }) {
 
   const AWS_PUBLIC_URL = process.env.NEXT_PUBLIC_AWS_S3_PUBLIC_URL;
 
+  // ✅ Initial check when component mounts
   useEffect(() => {
     const checkExisting = async () => {
       const { data: userData } = await supabase.auth.getUser();
@@ -18,7 +22,7 @@ export default function Recorder({ chainId, mode }) {
           .from("clips")
           .select("id, created_at")
           .eq("user_id", userData.user.id)
-          .eq("chain_id", chainId)
+          .eq("chain_id", GLOBAL_CHAIN_ID)
           .order("created_at", { ascending: false })
           .limit(1);
 
@@ -38,14 +42,41 @@ export default function Recorder({ chainId, mode }) {
         }
       }
     };
-    if (chainId) checkExisting();
-  }, [chainId]);
+    checkExisting();
+  }, []);
 
+  // ✅ Start recording with live 24-hour verification
   const startRecording = async () => {
-    if (hasRecorded) {
-      setMessage("You already recorded today!");
+    // Re-check Supabase every time user clicks record
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id;
+
+    if (!userId) {
+      setMessage("You must be logged in to record.");
       return;
     }
+
+    const { data: existing } = await supabase
+      .from("clips")
+      .select("created_at")
+      .eq("user_id", userId)
+      .eq("chain_id", GLOBAL_CHAIN_ID)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      const lastClipTime = new Date(existing[0].created_at);
+      const diffHours = (Date.now() - lastClipTime) / (1000 * 60 * 60);
+      if (diffHours < 24) {
+        setMessage("✅ You have already contributed. Try again after 24h.");
+        setHasRecorded(true);
+        return;
+      }
+    }
+
+    // ✅ Continue only if user hasn't recorded in 24 h
+    setHasRecorded(false);
+    setMessage("");
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const recorder = new MediaRecorder(stream);
@@ -57,7 +88,7 @@ export default function Recorder({ chainId, mode }) {
       const fileName = `clip-${Date.now()}.webm`;
 
       try {
-        // ✅ Secure upload using presigned URL
+        // Upload to S3 via presigned URL
         const presignRes = await fetch(`/api/s3-upload?filename=${fileName}&type=audio/webm`);
         const { uploadUrl } = await presignRes.json();
 
@@ -67,18 +98,14 @@ export default function Recorder({ chainId, mode }) {
           body: blob,
         });
 
-        const { data: userData } = await supabase.auth.getUser();
-        const userId = userData?.user?.id;
-
         await supabase.from("clips").insert([
           {
-            chain_id: chainId,
+            chain_id: GLOBAL_CHAIN_ID,
             user_id: userId,
             audio_url: `${AWS_PUBLIC_URL}/${fileName}`,
           },
         ]);
 
-        // ✅ Trigger automatic reload + merge in global chain
         window.dispatchEvent(new Event("clipUploaded"));
         setHasRecorded(true);
         setMessage("✅ Uploaded successfully! Added to All Voices.");
@@ -152,7 +179,6 @@ export default function Recorder({ chainId, mode }) {
           )}
         </>
       ) : (
-        // ✅ Show message once only
         <p style={{ marginTop: "20px", opacity: 0.9 }}>{message}</p>
       )}
     </div>

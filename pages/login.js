@@ -43,10 +43,10 @@ export default function Login() {
       }}
     >
       <h1 style={{ color: "white", fontSize: "2.2rem", marginBottom: "20px" }}>
-        🎤 Chain
+         Chain
       </h1>
       <p style={{ color: "rgba(255,255,255,0.8)", marginBottom: "25px" }}>
-        One world. One voice. Sign in with Google to join.
+       
       </p>
 
       <div
