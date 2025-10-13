@@ -108,7 +108,7 @@ export default function Recorder({ mode }) {
 
         window.dispatchEvent(new Event("clipUploaded"));
         setHasRecorded(true);
-        setMessage("✅ Uploaded successfully! Added to All Voices.");
+        setMessage("✅ Uploaded successfully! Try after 24h.");
       } catch (err) {
         console.error("❌ Failed to upload to S3:", err);
         setMessage("❌ Failed to upload to S3: " + err.message);
