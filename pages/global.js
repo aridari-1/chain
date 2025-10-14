@@ -13,13 +13,14 @@ export default function GlobalChain() {
 
   const AWS_PUBLIC_URL = process.env.NEXT_PUBLIC_AWS_S3_PUBLIC_URL;
 
-  // ✅ 1️⃣ Load the most recent chain
+  // ✅ Load most recent active chain
   useEffect(() => {
     (async () => {
       const { data: chain } = await supabase
         .from("chains")
         .select("*")
         .eq("type", "global")
+        .eq("active", true)
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
@@ -27,54 +28,52 @@ export default function GlobalChain() {
       if (chain) {
         setCurrentChain(chain);
         await loadClips(chain.id);
-        calculateTimeLeft(chain.created_at);
+        startCountdown(chain);
         setLoading(false);
-
-        // ✅ Auto silent re-fetch when chain expires
-        const expiresAt = new Date(new Date(chain.created_at).getTime() + 24 * 60 * 60 * 1000);
-        const msUntilReset = expiresAt - Date.now();
-
-        if (msUntilReset > 0) {
-          setTimeout(async () => {
-            console.log("🔁 Silent refresh: loading new chain automatically...");
-            const { data: newChain } = await supabase
-              .from("chains")
-              .select("*")
-              .eq("type", "global")
-              .order("created_at", { ascending: false })
-              .limit(1)
-              .single();
-
-            if (newChain) {
-              setCurrentChain(newChain);
-              await loadClips(newChain.id);
-              calculateTimeLeft(newChain.created_at);
-            }
-          }, msUntilReset);
-        }
       }
     })();
   }, []);
 
-  // ✅ 2️⃣ Countdown timer for new chain
-  function calculateTimeLeft(createdAt) {
-    const expiresAt = new Date(new Date(createdAt).getTime() + 24 * 60 * 60 * 1000);
-    const interval = setInterval(() => {
+  // ✅ Start countdown + auto silent re-fetch (rolling 24h)
+  function startCountdown(chain) {
+    const createdAt = new Date(chain.created_at);
+    const expiresAt = new Date(createdAt.getTime() + 24 * 60 * 60 * 1000);
+
+    const updateTimer = () => {
       const diff = expiresAt - Date.now();
       if (diff <= 0) {
+        setTimeLeft("Creating next chain...");
         clearInterval(interval);
-        setTimeLeft("A new chain has started!");
+        // 🔁 Silent refresh after short delay to fetch new active chain
+        setTimeout(async () => {
+          console.log("🔁 24h passed — fetching new chain...");
+          const { data: newChain } = await supabase
+            .from("chains")
+            .select("*")
+            .eq("type", "global")
+            .eq("active", true)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .single();
+          if (newChain) {
+            setCurrentChain(newChain);
+            await loadClips(newChain.id);
+            startCountdown(newChain);
+          }
+        }, 5000);
       } else {
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
         const seconds = Math.floor((diff % (1000 * 60)) / 1000);
         setTimeLeft(`${hours}h ${minutes}m ${seconds}s`);
       }
-    }, 1000);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
   }
 
-  // ✅ 3️⃣ Load all clips for the active chain
   async function loadClips(chainId) {
     const { data } = await supabase
       .from("clips")
@@ -99,7 +98,6 @@ export default function GlobalChain() {
     }
   }
 
-  // ✅ 4️⃣ Auto-refresh when a new clip uploads manually (from Recorder.js)
   useEffect(() => {
     const handleNewClip = () => {
       if (currentChain) loadClips(currentChain.id);
@@ -108,7 +106,6 @@ export default function GlobalChain() {
     return () => window.removeEventListener("clipUploaded", handleNewClip);
   }, [currentChain]);
 
-  // ✅ 5️⃣ Supabase realtime listener (auto merge for all users)
   useEffect(() => {
     if (!currentChain) return;
 
@@ -145,7 +142,7 @@ export default function GlobalChain() {
         position: "relative",
       }}
     >
-      {/* ✅ Static logo + app name at top-right */}
+      {/* Top-right logo */}
       <div
         style={{
           position: "absolute",
@@ -198,7 +195,7 @@ export default function GlobalChain() {
 
         {timeLeft && (
           <p style={{ opacity: 0.9, fontSize: "0.95rem", marginBottom: "15px" }}>
-            ⏳ New chain starts in {timeLeft}
+            ⏳ Next chain starts in {timeLeft}
           </p>
         )}
 
@@ -257,7 +254,6 @@ export default function GlobalChain() {
         )}
       </div>
 
-      {/* ✅ Mobile responsive styles */}
       <style>{`
         @keyframes gradientMove {
           0% { background-position: 0% 50%; }
