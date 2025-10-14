@@ -29,6 +29,29 @@ export default function GlobalChain() {
         await loadClips(chain.id);
         calculateTimeLeft(chain.created_at);
         setLoading(false);
+
+        // ✅ Auto silent re-fetch when chain expires
+        const expiresAt = new Date(new Date(chain.created_at).getTime() + 24 * 60 * 60 * 1000);
+        const msUntilReset = expiresAt - Date.now();
+
+        if (msUntilReset > 0) {
+          setTimeout(async () => {
+            console.log("🔁 Silent refresh: loading new chain automatically...");
+            const { data: newChain } = await supabase
+              .from("chains")
+              .select("*")
+              .eq("type", "global")
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .single();
+
+            if (newChain) {
+              setCurrentChain(newChain);
+              await loadClips(newChain.id);
+              calculateTimeLeft(newChain.created_at);
+            }
+          }, msUntilReset);
+        }
       }
     })();
   }, []);
@@ -40,7 +63,7 @@ export default function GlobalChain() {
       const diff = expiresAt - Date.now();
       if (diff <= 0) {
         clearInterval(interval);
-        setTimeLeft("A new chain has started! Refresh to join.");
+        setTimeLeft("A new chain has started!");
       } else {
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -183,7 +206,6 @@ export default function GlobalChain() {
           <p>Loading…</p>
         ) : (
           <>
-            {/* ✅ Pass nothing, Recorder handles the chain internally */}
             <Recorder mode="global" />
 
             <div

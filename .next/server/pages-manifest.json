@@ -2,7 +2,6 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/api/s3-upload": "pages/api/s3-upload.js",
   "/global": "pages/global.js",
   "/": "pages/index.js",
   "/login": "pages/login.js"
