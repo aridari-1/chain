@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  create-chain-and-clean-old:
+  create-chain-and-keep-old:
     runs-on: ubuntu-latest
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}               # e.g. https://awfweymlejtjqpboalpw.supabase.co
@@ -31,7 +31,6 @@ jobs:
         run: |
           set -e
           latest_json='${{ steps.latest.outputs.latest_json }}'
-          # Parse with node (avoids jq dependency)
           node -e "
             const data = ${latest_json || '[]'};
             const latest = Array.isArray(data) && data[0] ? data[0] : null;
@@ -65,7 +64,6 @@ jobs:
             -H "Prefer: return=representation" \
             --data '{"type":"global","name":"Daily Global Chain"}')
           echo "create_json=$CREATE_JSON" >> $GITHUB_OUTPUT
-          # capture new id
           NEW_ID=$(node -e "console.log((JSON.parse(process.argv[1])||{}).id||'')" "$CREATE_JSON")
           echo "new_chain_id=$NEW_ID" >> $GITHUB_OUTPUT
 
@@ -81,23 +79,9 @@ jobs:
             echo "chain_id=$CURR_ID" >> $GITHUB_OUTPUT
           fi
 
-      - name: Delete clips from older chains (immediate disappearance)
+      # 🟢 Keep old chains and clips for history
+      - name: Preserve older chains and clips
         if: steps.resolve.outputs.chain_id != ''
         run: |
-          set -e
-          CHAIN_ID='${{ steps.resolve.outputs.chain_id }}'
-          # Delete all clips not belonging to current chain
-          curl -fsS -X DELETE \
-            "$SUPABASE_URL/rest/v1/clips?chain_id=neq.$CHAIN_ID" \
-            -H "apikey: $SERVICE_KEY" \
-            -H "Authorization: Bearer $SERVICE_KEY"
-
-      - name: Delete older global chains
-        if: steps.resolve.outputs.chain_id != ''
-        run: |
-          set -e
-          CHAIN_ID='${{ steps.resolve.outputs.chain_id }}'
-          curl -fsS -X DELETE \
-            "$SUPABASE_URL/rest/v1/chains?type=eq.global&id=neq.$CHAIN_ID" \
-            -H "apikey: $SERVICE_KEY" \
-            -H "Authorization: Bearer $SERVICE_KEY"
+          echo "✅ Keeping all previous chains and clips for record-keeping."
+          echo "No deletions performed."
