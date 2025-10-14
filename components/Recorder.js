@@ -1,9 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 
-// ✅ Permanent global chain ID
-const GLOBAL_CHAIN_ID = "4a6328ce-89cc-45db-9960-320fe932976a";
-
 export default function Recorder({ mode }) {
   const [recording, setRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
@@ -13,68 +10,91 @@ export default function Recorder({ mode }) {
 
   const AWS_PUBLIC_URL = process.env.NEXT_PUBLIC_AWS_S3_PUBLIC_URL;
 
-  // ✅ Initial check when component mounts
+  // ✅ Check if user already recorded in the current active chain
   useEffect(() => {
     const checkExisting = async () => {
       const { data: userData } = await supabase.auth.getUser();
-      if (userData?.user) {
-        const { data } = await supabase
-          .from("clips")
-          .select("id, created_at")
-          .eq("user_id", userData.user.id)
-          .eq("chain_id", GLOBAL_CHAIN_ID)
-          .order("created_at", { ascending: false })
-          .limit(1);
+      if (!userData?.user) return;
 
-        if (data && data.length > 0) {
-          const lastClip = data[0];
-          const clipTime = new Date(lastClip.created_at);
-          const now = new Date();
-          const diffHours = (now - clipTime) / (1000 * 60 * 60);
+      // Get the most recent global chain
+      const { data: chain } = await supabase
+        .from("chains")
+        .select("id, created_at")
+        .eq("type", "global")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
 
-          if (diffHours < 24) {
-            setHasRecorded(true);
-            setMessage("✅ You have already contributed. Try again after 24h.");
-          } else {
-            await supabase.from("clips").delete().eq("id", lastClip.id);
-            setHasRecorded(false);
-          }
-        }
+      if (!chain) return;
+
+      // If the chain has expired, user must refresh for the new one
+      const expiresAt = new Date(new Date(chain.created_at).getTime() + 24 * 60 * 60 * 1000);
+      if (Date.now() > expiresAt) {
+        setHasRecorded(true);
+        setMessage("⏳ Previous chain ended. Please refresh for the new chain.");
+        return;
+      }
+
+      // Check if this user already recorded on the current chain
+      const { data: existing } = await supabase
+        .from("clips")
+        .select("id")
+        .eq("user_id", userData.user.id)
+        .eq("chain_id", chain.id);
+
+      if (existing && existing.length > 0) {
+        setHasRecorded(true);
+        setMessage("✅ You’ve already contributed to today’s chain!");
+      } else {
+        setHasRecorded(false);
       }
     };
     checkExisting();
   }, []);
 
-  // ✅ Start recording with live 24-hour verification
   const startRecording = async () => {
-    // Re-check Supabase every time user clicks record
     const { data: userData } = await supabase.auth.getUser();
     const userId = userData?.user?.id;
-
     if (!userId) {
       setMessage("You must be logged in to record.");
       return;
     }
 
-    const { data: existing } = await supabase
-      .from("clips")
-      .select("created_at")
-      .eq("user_id", userId)
-      .eq("chain_id", GLOBAL_CHAIN_ID)
+    // ✅ Fetch latest global chain before every recording
+    const { data: chain } = await supabase
+      .from("chains")
+      .select("id, created_at")
+      .eq("type", "global")
       .order("created_at", { ascending: false })
-      .limit(1);
+      .limit(1)
+      .single();
 
-    if (existing && existing.length > 0) {
-      const lastClipTime = new Date(existing[0].created_at);
-      const diffHours = (Date.now() - lastClipTime) / (1000 * 60 * 60);
-      if (diffHours < 24) {
-        setMessage("✅ You have already contributed. Try again after 24h.");
-        setHasRecorded(true);
-        return;
-      }
+    if (!chain) {
+      setMessage("No active chain found. Please refresh.");
+      return;
     }
 
-    // ✅ Continue only if user hasn't recorded in 24 h
+    const expiresAt = new Date(new Date(chain.created_at).getTime() + 24 * 60 * 60 * 1000);
+    if (Date.now() > expiresAt) {
+      setMessage("⏳ Previous chain ended. Please refresh for the new chain.");
+      setHasRecorded(true);
+      return;
+    }
+
+    // Check if user already recorded in this chain
+    const { data: existing } = await supabase
+      .from("clips")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("chain_id", chain.id);
+
+    if (existing && existing.length > 0) {
+      setMessage("✅ You’ve already contributed to today’s chain!");
+      setHasRecorded(true);
+      return;
+    }
+
+    // ✅ Continue only if user can record
     setHasRecorded(false);
     setMessage("");
 
@@ -88,7 +108,6 @@ export default function Recorder({ mode }) {
       const fileName = `clip-${Date.now()}.webm`;
 
       try {
-        // Upload to S3 via presigned URL
         const presignRes = await fetch(`/api/s3-upload?filename=${fileName}&type=audio/webm`);
         const { uploadUrl } = await presignRes.json();
 
@@ -100,7 +119,7 @@ export default function Recorder({ mode }) {
 
         await supabase.from("clips").insert([
           {
-            chain_id: GLOBAL_CHAIN_ID,
+            chain_id: chain.id, // ✅ always current chain
             user_id: userId,
             audio_url: `${AWS_PUBLIC_URL}/${fileName}`,
           },
@@ -108,7 +127,7 @@ export default function Recorder({ mode }) {
 
         window.dispatchEvent(new Event("clipUploaded"));
         setHasRecorded(true);
-        setMessage("✅ Uploaded successfully! Try after 24h.");
+        setMessage("✅ Uploaded successfully! Try again in the next chain.");
       } catch (err) {
         console.error("❌ Failed to upload to S3:", err);
         setMessage("❌ Failed to upload to S3: " + err.message);
@@ -120,7 +139,7 @@ export default function Recorder({ mode }) {
     setMediaRecorder(recorder);
     setMessage("🎙️ Recording...");
 
-    // ✅ Stop automatically after 6 seconds
+    // ✅ Auto-stop after 6 seconds
     setTimeout(() => {
       if (recorder.state === "recording") {
         recorder.stop();

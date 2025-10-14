@@ -4,29 +4,59 @@ import { supabase } from "../lib/supabaseClient";
 import Recorder from "../components/Recorder";
 import { mergeClips } from "../utils/mergeAudio";
 
-// ✅ Permanent Global Chain ID from Supabase
-const GLOBAL_CHAIN_ID = "4a6328ce-89cc-45db-9960-320fe932976a";
-
 export default function GlobalChain() {
   const [clips, setClips] = useState([]);
   const [mergedUrl, setMergedUrl] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [currentChain, setCurrentChain] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(null);
 
   const AWS_PUBLIC_URL = process.env.NEXT_PUBLIC_AWS_S3_PUBLIC_URL;
 
-  // ✅ Load all clips from the one global chain
+  // ✅ 1️⃣ Load the most recent chain
   useEffect(() => {
     (async () => {
-      await loadClips(GLOBAL_CHAIN_ID);
-      setLoading(false);
+      const { data: chain } = await supabase
+        .from("chains")
+        .select("*")
+        .eq("type", "global")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (chain) {
+        setCurrentChain(chain);
+        await loadClips(chain.id);
+        calculateTimeLeft(chain.created_at);
+        setLoading(false);
+      }
     })();
   }, []);
 
-  async function loadClips(id) {
+  // ✅ 2️⃣ Countdown timer for new chain
+  function calculateTimeLeft(createdAt) {
+    const expiresAt = new Date(new Date(createdAt).getTime() + 24 * 60 * 60 * 1000);
+    const interval = setInterval(() => {
+      const diff = expiresAt - Date.now();
+      if (diff <= 0) {
+        clearInterval(interval);
+        setTimeLeft("A new chain has started! Refresh to join.");
+      } else {
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+        setTimeLeft(`${hours}h ${minutes}m ${seconds}s`);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }
+
+  // ✅ 3️⃣ Load all clips for the active chain
+  async function loadClips(chainId) {
     const { data } = await supabase
       .from("clips")
       .select("*")
-      .eq("chain_id", id)
+      .eq("chain_id", chainId)
       .order("created_at", { ascending: true });
 
     if (!data) return;
@@ -46,31 +76,35 @@ export default function GlobalChain() {
     }
   }
 
-  // ✅ Auto-refresh when a new clip uploads manually (from Recorder.js)
+  // ✅ 4️⃣ Auto-refresh when a new clip uploads manually (from Recorder.js)
   useEffect(() => {
-    const handleNewClip = () => loadClips(GLOBAL_CHAIN_ID);
+    const handleNewClip = () => {
+      if (currentChain) loadClips(currentChain.id);
+    };
     window.addEventListener("clipUploaded", handleNewClip);
     return () => window.removeEventListener("clipUploaded", handleNewClip);
-  }, []);
+  }, [currentChain]);
 
-  // ✅ Supabase realtime listener (auto merge for all users)
+  // ✅ 5️⃣ Supabase realtime listener (auto merge for all users)
   useEffect(() => {
+    if (!currentChain) return;
+
     const channel = supabase
       .channel("realtime:clips")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "clips" },
         (payload) => {
-          if (payload.new.chain_id === GLOBAL_CHAIN_ID) {
+          if (payload.new.chain_id === currentChain.id) {
             console.log("📡 New clip added:", payload.new);
-            loadClips(GLOBAL_CHAIN_ID);
+            loadClips(currentChain.id);
           }
         }
       )
       .subscribe();
 
     return () => supabase.removeChannel(channel);
-  }, []);
+  }, [currentChain]);
 
   return (
     <div
@@ -139,11 +173,17 @@ export default function GlobalChain() {
           Add your voice to the world 🌍
         </h1>
 
+        {timeLeft && (
+          <p style={{ opacity: 0.9, fontSize: "0.95rem", marginBottom: "15px" }}>
+            ⏳ New chain starts in {timeLeft}
+          </p>
+        )}
+
         {loading ? (
           <p>Loading…</p>
         ) : (
           <>
-            {/* ✅ No need to pass chainId anymore */}
+            {/* ✅ Pass nothing, Recorder handles the chain internally */}
             <Recorder mode="global" />
 
             <div

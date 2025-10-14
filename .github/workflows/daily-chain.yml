@@ -1,0 +1,103 @@
+name: Daily Global Chain (Midnight America/Chicago)
+
+on:
+  schedule:
+    # Run near midnight America/Chicago in both DST (CDT=UTC-5) and Standard (CST=UTC-6)
+    - cron: "0 5 * * *"   # 12:00 AM when CDT
+    - cron: "0 6 * * *"   # 12:00 AM when CST
+  workflow_dispatch:
+
+jobs:
+  create-chain-and-clean-old:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}               # e.g. https://awfweymlejtjqpboalpw.supabase.co
+      SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}        # Supabase Service Role key
+
+    steps:
+      - name: Fetch latest global chain
+        id: latest
+        run: |
+          set -e
+          LATEST_JSON=$(curl -fsS \
+            "$SUPABASE_URL/rest/v1/chains?type=eq.global&order=created_at.desc&limit=1" \
+            -H "apikey: $SERVICE_KEY" \
+            -H "Authorization: Bearer $SERVICE_KEY" \
+            -H "Accept: application/json")
+          echo "latest_json=$LATEST_JSON" >> $GITHUB_OUTPUT
+
+      - name: Determine if we need to create today’s chain
+        id: decide
+        run: |
+          set -e
+          latest_json='${{ steps.latest.outputs.latest_json }}'
+          # Parse with node (avoids jq dependency)
+          node -e "
+            const data = ${latest_json || '[]'};
+            const latest = Array.isArray(data) && data[0] ? data[0] : null;
+            const needsNew = (() => {
+              if (!latest) return true;
+              const createdAt = new Date(latest.created_at).getTime();
+              const now = Date.now();
+              return (now - createdAt) >= 24*60*60*1000; // older than 24h
+            })();
+            const id = latest?.id || '';
+            console.log('needsNew=' + needsNew);
+            console.log('currentId=' + id);
+          " | tee decide.log
+
+          NEEDS_NEW=$(grep '^needsNew=' decide.log | cut -d= -f2)
+          CURR_ID=$(grep '^currentId=' decide.log | cut -d= -f2)
+
+          echo "needs_new=$NEEDS_NEW" >> $GITHUB_OUTPUT
+          echo "current_id=$CURR_ID"  >> $GITHUB_OUTPUT
+
+      - name: Create new global chain if needed
+        if: steps.decide.outputs.needs_new == 'true'
+        id: create
+        run: |
+          set -e
+          CREATE_JSON=$(curl -fsS -X POST \
+            "$SUPABASE_URL/rest/v1/chains" \
+            -H "apikey: $SERVICE_KEY" \
+            -H "Authorization: Bearer $SERVICE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=representation" \
+            --data '{"type":"global","name":"Daily Global Chain"}')
+          echo "create_json=$CREATE_JSON" >> $GITHUB_OUTPUT
+          # capture new id
+          NEW_ID=$(node -e "console.log((JSON.parse(process.argv[1])||{}).id||'')" "$CREATE_JSON")
+          echo "new_chain_id=$NEW_ID" >> $GITHUB_OUTPUT
+
+      - name: Resolve current chain id (new or latest)
+        id: resolve
+        run: |
+          set -e
+          NEW_ID='${{ steps.create.outputs.new_chain_id }}'
+          CURR_ID='${{ steps.decide.outputs.current_id }}'
+          if [ -n "$NEW_ID" ]; then
+            echo "chain_id=$NEW_ID" >> $GITHUB_OUTPUT
+          else
+            echo "chain_id=$CURR_ID" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Delete clips from older chains (immediate disappearance)
+        if: steps.resolve.outputs.chain_id != ''
+        run: |
+          set -e
+          CHAIN_ID='${{ steps.resolve.outputs.chain_id }}'
+          # Delete all clips not belonging to current chain
+          curl -fsS -X DELETE \
+            "$SUPABASE_URL/rest/v1/clips?chain_id=neq.$CHAIN_ID" \
+            -H "apikey: $SERVICE_KEY" \
+            -H "Authorization: Bearer $SERVICE_KEY"
+
+      - name: Delete older global chains
+        if: steps.resolve.outputs.chain_id != ''
+        run: |
+          set -e
+          CHAIN_ID='${{ steps.resolve.outputs.chain_id }}'
+          curl -fsS -X DELETE \
+            "$SUPABASE_URL/rest/v1/chains?type=eq.global&id=neq.$CHAIN_ID" \
+            -H "apikey: $SERVICE_KEY" \
+            -H "Authorization: Bearer $SERVICE_KEY"
