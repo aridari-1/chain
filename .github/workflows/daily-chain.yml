@@ -1,18 +1,17 @@
-name: Daily Global Chain (Midnight America/Chicago)
+name: Rolling 24-Hour Global Chain
 
 on:
   schedule:
-    # Run near midnight America/Chicago in both DST (CDT=UTC-5) and Standard (CST=UTC-6)
-    - cron: "0 5 * * *"   # 12:00 AM when CDT
-    - cron: "0 6 * * *"   # 12:00 AM when CST
-  workflow_dispatch:
+    # Run every hour to check if 24 h have passed since the last chain
+    - cron: "0 * * * *"
+  workflow_dispatch:  # allows manual trigger too
 
 jobs:
-  create-chain-and-keep-old:
+  check-and-create-chain:
     runs-on: ubuntu-latest
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}               # e.g. https://awfweymlejtjqpboalpw.supabase.co
-      SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}        # Supabase Service Role key
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
     steps:
       - name: Fetch latest global chain
@@ -26,7 +25,7 @@ jobs:
             -H "Accept: application/json")
           echo "latest_json=$LATEST_JSON" >> $GITHUB_OUTPUT
 
-      - name: Determine if we need to create today’s chain
+      - name: Determine if 24 h have passed
         id: decide
         run: |
           set -e
@@ -38,7 +37,7 @@ jobs:
               if (!latest) return true;
               const createdAt = new Date(latest.created_at).getTime();
               const now = Date.now();
-              return (now - createdAt) >= 24*60*60*1000; // older than 24h
+              return (now - createdAt) >= 24*60*60*1000;
             })();
             const id = latest?.id || '';
             console.log('needsNew=' + needsNew);
@@ -51,37 +50,24 @@ jobs:
           echo "needs_new=$NEEDS_NEW" >> $GITHUB_OUTPUT
           echo "current_id=$CURR_ID"  >> $GITHUB_OUTPUT
 
-      - name: Create new global chain if needed
+      - name: Create new chain if 24 h passed
         if: steps.decide.outputs.needs_new == 'true'
-        id: create
         run: |
           set -e
-          CREATE_JSON=$(curl -fsS -X POST \
+          echo "24 h have passed since last chain — creating new one…"
+
+          # 1️⃣ Deactivate all old chains
+          curl -fsS -X PATCH \
+            "$SUPABASE_URL/rest/v1/chains?type=eq.global" \
+            -H "apikey: $SERVICE_KEY" \
+            -H "Authorization: Bearer $SERVICE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"active": false}'
+
+          # 2️⃣ Create new active chain
+          curl -fsS -X POST \
             "$SUPABASE_URL/rest/v1/chains" \
             -H "apikey: $SERVICE_KEY" \
             -H "Authorization: Bearer $SERVICE_KEY" \
             -H "Content-Type: application/json" \
-            -H "Prefer: return=representation" \
-            --data '{"type":"global","name":"Daily Global Chain"}')
-          echo "create_json=$CREATE_JSON" >> $GITHUB_OUTPUT
-          NEW_ID=$(node -e "console.log((JSON.parse(process.argv[1])||{}).id||'')" "$CREATE_JSON")
-          echo "new_chain_id=$NEW_ID" >> $GITHUB_OUTPUT
-
-      - name: Resolve current chain id (new or latest)
-        id: resolve
-        run: |
-          set -e
-          NEW_ID='${{ steps.create.outputs.new_chain_id }}'
-          CURR_ID='${{ steps.decide.outputs.current_id }}'
-          if [ -n "$NEW_ID" ]; then
-            echo "chain_id=$NEW_ID" >> $GITHUB_OUTPUT
-          else
-            echo "chain_id=$CURR_ID" >> $GITHUB_OUTPUT
-          fi
-
-      # 🟢 Keep old chains and clips for history
-      - name: Preserve older chains and clips
-        if: steps.resolve.outputs.chain_id != ''
-        run: |
-          echo "✅ Keeping all previous chains and clips for record-keeping."
-          echo "No deletions performed."
+            --data '{"type":"global","max_clips":null,"creator_id":null,"active":true}'
