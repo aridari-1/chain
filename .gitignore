@@ -4,6 +4,7 @@
 .env.development
 .env.production
 .env.test
+.env.*.local
 
 # --- Node & build artifacts ---
 node_modules/
@@ -16,6 +17,11 @@ yarn-error.log*
 out/
 .vercel/
 
+# --- Supabase local files ---
+supabase/.temp
+supabase/.branches
+supabase/.env
+
 # --- OS & editor files ---
 .DS_Store
 Thumbs.db
@@ -25,11 +31,6 @@ Thumbs.db
 .vscode/
 .idea/
 
-# --- Supabase local files ---
-supabase/.temp
-supabase/.branches
-supabase/.env
-
 # --- Logs ---
 *.log
 
@@ -37,4 +38,3 @@ supabase/.env
 coverage/
 dist/
 tmp/
-.vercel
