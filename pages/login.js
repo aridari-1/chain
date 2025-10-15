@@ -1,77 +1,105 @@
-// pages/login.js
-import { useEffect } from "react";
-import { useRouter } from "next/router";
+import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { Auth } from "@supabase/auth-ui-react";
-import { ThemeSupa } from "@supabase/auth-ui-shared";
+import Image from "next/image";
 
 export default function Login() {
-  const router = useRouter();
+  const [inAppBrowser, setInAppBrowser] = useState(false);
 
+  // ✅ Detect in-app browsers (Snapchat, Instagram, TikTok, Facebook, etc.)
   useEffect(() => {
-    // Check if user is already signed in
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        router.replace("/global"); // ✅ redirect to global after login
-      }
-    });
+    const ua = navigator.userAgent || navigator.vendor || window.opera;
+    const isInApp = /(FBAN|FBAV|Instagram|Snapchat|TikTok|Twitter|Line)/i.test(ua);
+    setInAppBrowser(isInApp);
+  }, []);
 
-    // Listen for auth state changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        router.replace("/global"); // ✅ redirect to global after login
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [router]);
+  // ✅ Start Google sign-in
+  const handleGoogleLogin = async () => {
+    try {
+      await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/`, // back to home after login
+        },
+      });
+    } catch (err) {
+      console.error("Google sign-in error:", err);
+    }
+  };
 
   return (
     <div
       style={{
-        height: "100vh",
-        background: "linear-gradient(135deg, #667eea, #764ba2, #ff6ec4)",
-        backgroundSize: "300% 300%",
-        animation: "gradientBG 12s ease infinite",
+        minHeight: "100vh",
         display: "flex",
         flexDirection: "column",
         justifyContent: "center",
         alignItems: "center",
+        background: "linear-gradient(135deg,#667eea,#764ba2,#ff6ec4)",
+        backgroundSize: "300% 300%",
+        animation: "gradientMove 12s ease infinite",
+        color: "#fff",
         fontFamily: "Poppins, sans-serif",
+        textAlign: "center",
+        padding: "20px",
       }}
     >
-      <h1 style={{ color: "white", fontSize: "2.2rem", marginBottom: "20px" }}>
-         Chain
-      </h1>
-      <p style={{ color: "rgba(255,255,255,0.8)", marginBottom: "25px" }}>
-       
+      <Image
+        src="/chain-logo.png"
+        alt="Chain Logo"
+        width={80}
+        height={80}
+        style={{ borderRadius: "50%", marginBottom: "20px" }}
+      />
+      <h1 style={{ fontSize: "2rem", marginBottom: "10px" }}>Welcome to Chain</h1>
+      <p style={{ opacity: 0.9, marginBottom: "30px" }}>
+        Login with Google to join the global voice chain
       </p>
 
-      <div
-        style={{
-          background: "rgba(255, 255, 255, 0.2)",
-          padding: "30px",
-          borderRadius: "16px",
-          backdropFilter: "blur(10px)",
-          width: "90%",
-          maxWidth: "400px",
-        }}
-      >
-        <Auth
-          supabaseClient={supabase}
-          providers={["google"]} // ✅ Google-only login
-          appearance={{
-            theme: ThemeSupa,
-            style: {
-              button: { background: "white", color: "#764ba2" },
-            },
+      {inAppBrowser ? (
+        // ⚠️ Shown only inside Snapchat / Instagram / TikTok webviews
+        <div
+          style={{
+            background: "rgba(255,255,255,0.15)",
+            padding: "20px",
+            borderRadius: "16px",
+            maxWidth: "360px",
           }}
-          theme="dark"
-          onlyThirdPartyProviders={true} // ✅ hides email fields
-        />
-      </div>
+        >
+          <p style={{ fontSize: "1rem", marginBottom: "10px" }}>
+            🚫 Google login isn’t supported in this browser.
+          </p>
+          <p style={{ fontSize: "0.95rem", opacity: 0.9 }}>
+            Please tap the ⋯ menu and choose <strong>“Open in Chrome”</strong> or <strong>“Open in Safari”</strong> to continue.
+          </p>
+        </div>
+      ) : (
+        <button
+          onClick={handleGoogleLogin}
+          style={{
+            background: "#fff",
+            color: "#764ba2",
+            padding: "12px 22px",
+            border: "none",
+            borderRadius: "30px",
+            fontSize: "1rem",
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "transform 0.2s",
+          }}
+          onMouseOver={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
+          onMouseOut={(e) => (e.currentTarget.style.transform = "scale(1)")}
+        >
+          Continue with Google
+        </button>
+      )}
+
+      <style>{`
+        @keyframes gradientMove {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+      `}</style>
     </div>
   );
 }
