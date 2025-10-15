@@ -13,10 +13,24 @@ export default function GlobalChain() {
 
   const AWS_PUBLIC_URL = process.env.NEXT_PUBLIC_AWS_S3_PUBLIC_URL;
 
+  // ✅ Helper to parse Supabase timestamps strictly as UTC
+  const parseSupabaseUTC = (ts) => {
+    if (!ts) return null;
+    const parts = ts.split(/[-T:.Z]/);
+    return Date.UTC(
+      parts[0],
+      parts[1] - 1,
+      parts[2],
+      parts[3],
+      parts[4],
+      parts[5]
+    );
+  };
+
   // ✅ Load most recent active chain
   useEffect(() => {
     (async () => {
-      const { data: chain } = await supabase
+      const { data: chain, error } = await supabase
         .from("chains")
         .select("*")
         .eq("type", "global")
@@ -25,29 +39,35 @@ export default function GlobalChain() {
         .limit(1)
         .single();
 
-      if (chain) {
-        setCurrentChain(chain);
-        await loadClips(chain.id);
-        startCountdown(chain);
+      if (error || !chain) {
+        console.warn("⚠️ No active chain found:", error?.message || "None returned");
+        setTimeLeft("⚠️ No active chain found");
         setLoading(false);
+        return;
       }
+
+      setCurrentChain(chain);
+      await loadClips(chain.id);
+      startCountdown(chain);
+      setLoading(false);
     })();
   }, []);
 
   // ✅ Start countdown + auto silent re-fetch (rolling 24h)
   function startCountdown(chain) {
-    const createdAt = new Date(chain.created_at);
-    const expiresAt = new Date(createdAt.getTime() + 24 * 60 * 60 * 1000);
+    const createdAtUTC = parseSupabaseUTC(chain.created_at);
+    const expiresAt = createdAtUTC + 24 * 60 * 60 * 1000;
+
+    let interval;
 
     const updateTimer = () => {
       const diff = expiresAt - Date.now();
       if (diff <= 0) {
         setTimeLeft("Creating next chain...");
         clearInterval(interval);
-        // 🔁 Silent refresh after short delay to fetch new active chain
         setTimeout(async () => {
           console.log("🔁 24h passed — fetching new chain...");
-          const { data: newChain } = await supabase
+          const { data: newChain, error } = await supabase
             .from("chains")
             .select("*")
             .eq("type", "global")
@@ -55,11 +75,14 @@ export default function GlobalChain() {
             .order("created_at", { ascending: false })
             .limit(1)
             .single();
-          if (newChain) {
-            setCurrentChain(newChain);
-            await loadClips(newChain.id);
-            startCountdown(newChain);
+          if (error || !newChain) {
+            console.warn("⚠️ No new chain found after refresh:", error?.message || "None returned");
+            setTimeLeft("⚠️ Waiting for next chain...");
+            return;
           }
+          setCurrentChain(newChain);
+          await loadClips(newChain.id);
+          startCountdown(newChain);
         }, 5000);
       } else {
         const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -70,7 +93,7 @@ export default function GlobalChain() {
     };
 
     updateTimer();
-    const interval = setInterval(updateTimer, 1000);
+    interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
   }
 
@@ -83,7 +106,13 @@ export default function GlobalChain() {
 
     if (!data) return;
 
-    const updated = data.map((clip) => ({
+    // ✅ Sort clips based on true UTC order for consistency
+    const sorted = data.sort(
+      (a, b) =>
+        parseSupabaseUTC(a.created_at) - parseSupabaseUTC(b.created_at)
+    );
+
+    const updated = sorted.map((clip) => ({
       ...clip,
       audio_url: clip.audio_url.startsWith("http")
         ? clip.audio_url
