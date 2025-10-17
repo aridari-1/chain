@@ -5,21 +5,43 @@ import Image from "next/image";
 export default function Login() {
   const [inAppBrowser, setInAppBrowser] = useState(false);
 
-  // ✅ Detect in-app browsers (Snapchat, Instagram, TikTok, Facebook, etc.)
+  // ✅ Detect if inside Snapchat, Instagram, TikTok, etc.
   useEffect(() => {
     const ua = navigator.userAgent || navigator.vendor || window.opera;
     const isInApp = /(FBAN|FBAV|Instagram|Snapchat|TikTok|Twitter|Line)/i.test(ua);
     setInAppBrowser(isInApp);
+
+    if (isInApp) {
+      // ✅ Automatically try to open in Safari or Chrome
+      const appUrl = window.location.href;
+
+      if (/iphone|ipad|ipod/i.test(ua)) {
+        // iOS → open in Safari directly
+        window.location.href = `x-web-search://?${appUrl}`;
+        setTimeout(() => {
+          alert("Please tap the Share button → 'Open in Safari' to continue.");
+        }, 1000);
+      } else if (/android/i.test(ua)) {
+        // Android → show the native browser chooser
+        const intentUrl = `intent://${appUrl.replace(/^https?:\/\//, "")}#Intent;scheme=https;package=com.android.chrome;end`;
+        window.location.href = intentUrl;
+
+        setTimeout(() => {
+          alert("If not prompted, tap ⋮ → 'Open in Chrome' to continue.");
+        }, 2000);
+      } else {
+        // Other devices fallback
+        alert("Please open this link in Safari or Chrome to log in.");
+      }
+    }
   }, []);
 
-  // ✅ Start Google sign-in
+  // ✅ Start Google sign-in normally when not in in-app browser
   const handleGoogleLogin = async () => {
     try {
       await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: {
-          redirectTo: `${window.location.origin}/`, // back to home after login
-        },
+        options: { redirectTo: `${window.location.origin}/` },
       });
     } catch (err) {
       console.error("Google sign-in error:", err);
@@ -55,24 +77,7 @@ export default function Login() {
         Login with Google to join the global voice chain
       </p>
 
-      {inAppBrowser ? (
-        // ⚠️ Shown only inside Snapchat / Instagram / TikTok webviews
-        <div
-          style={{
-            background: "rgba(255,255,255,0.15)",
-            padding: "20px",
-            borderRadius: "16px",
-            maxWidth: "360px",
-          }}
-        >
-          <p style={{ fontSize: "1rem", marginBottom: "10px" }}>
-            🚫 Google login isn’t supported in this browser.
-          </p>
-          <p style={{ fontSize: "0.95rem", opacity: 0.9 }}>
-            Please tap the ⋯ menu and choose <strong>“Open in Chrome”</strong> or <strong>“Open in Safari”</strong> to continue.
-          </p>
-        </div>
-      ) : (
+      {!inAppBrowser && (
         <button
           onClick={handleGoogleLogin}
           style={{
