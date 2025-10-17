@@ -2,7 +2,7 @@ name: Daily Global Chain (Rolling 24h)
 
 on:
   schedule:
-    # Run every 10 minutes to check if 24h passed
+    # Runs every 10 minutes
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
@@ -50,6 +50,7 @@ jobs:
           CURR_ID=$(grep '^currentId=' decide.log | cut -d= -f2)
           echo "needs_new=$NEEDS_NEW" >> $GITHUB_OUTPUT
           echo "current_id=$CURR_ID"  >> $GITHUB_OUTPUT
+          echo "Decision: needs_new=$NEEDS_NEW"
 
       - name: Attempt to create new global chain (with full response)
         if: steps.decide.outputs.needs_new == 'true'
@@ -57,38 +58,43 @@ jobs:
         run: |
           set -e
           echo "📡 Attempting to create a new global chain..."
-          RESPONSE=$(curl -i -X POST \
-            "$SUPABASE_URL/rest/v1/chains" \
+          RESPONSE=$(curl -s -o response.txt -w "%{http_code}" \
+            -X POST "$SUPABASE_URL/rest/v1/chains" \
             -H "apikey: $SERVICE_KEY" \
             -H "Authorization: Bearer $SERVICE_KEY" \
             -H "Content-Type: application/json" \
             -H "Prefer: return=representation" \
             --data '{"type":"global","max_clips":null,"creator_id":null,"active":true}')
-          echo "✅ Response from Supabase:"
-          echo "$RESPONSE"
-
-      - name: Resolve current chain id
-        id: resolve
-        run: |
-          set -e
-          NEW_ID='${{ steps.create.outputs.new_chain_id }}'
-          CURR_ID='${{ steps.decide.outputs.current_id }}'
-          if [ -n "$NEW_ID" ]; then
-            echo "chain_id=$NEW_ID" >> $GITHUB_OUTPUT
-          else
-            echo "chain_id=$CURR_ID" >> $GITHUB_OUTPUT
+          STATUS=$(tail -n1 response.txt)
+          echo "HTTP status: $STATUS"
+          echo "✅ Response body:"
+          cat response.txt
+          if [ "$STATUS" -ge 400 ]; then
+            echo "❌ Chain creation failed with status $STATUS"
+            exit 1
           fi
+          echo "✅ Chain creation successful."
 
       - name: Deactivate older chains (keep only the latest)
-        if: steps.resolve.outputs.chain_id != ''
         run: |
           set -e
-          CHAIN_ID='${{ steps.resolve.outputs.chain_id }}'
           echo "🧹 Deactivating older chains..."
-          curl -i -X PATCH \
-            "$SUPABASE_URL/rest/v1/chains?type=eq.global&id=neq.$CHAIN_ID" \
+          ACTIVE_CHAIN=$(curl -fsS \
+            "$SUPABASE_URL/rest/v1/chains?type=eq.global&order=created_at.desc&limit=1" \
             -H "apikey: $SERVICE_KEY" \
             -H "Authorization: Bearer $SERVICE_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{"active": false}'
-          echo "✅ Old chains deactivated."
+            -H "Accept: application/json" )
+          CHAIN_ID=$(echo "$ACTIVE_CHAIN" | grep -o '"id":"[^"]*"' | head -1 | cut -d':' -f2 | tr -d '"')
+          echo "Latest chain id: $CHAIN_ID"
+          if [ -n "$CHAIN_ID" ]; then
+            curl -fsS -X PATCH \
+              "$SUPABASE_URL/rest/v1/chains?type=eq.global&id=neq.$CHAIN_ID" \
+              -H "apikey: $SERVICE_KEY" \
+              -H "Authorization: Bearer $SERVICE_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{"active": false}'
+            echo "✅ Older chains deactivated."
+          else
+            echo "⚠️ No chain ID found, skipping cleanup."
+          fi
+          exit 0
