@@ -4,16 +4,34 @@ import Image from "next/image";
 
 export default function Login() {
   const [inAppBrowser, setInAppBrowser] = useState(false);
-  const [userAgent, setUserAgent] = useState("");
+  const [showPopup, setShowPopup] = useState(false);
 
+  // ✅ Detect if user is inside Snapchat, Instagram, TikTok, etc.
   useEffect(() => {
     const ua = navigator.userAgent || navigator.vendor || window.opera;
-    setUserAgent(ua);
     const isInApp = /(FBAN|FBAV|Instagram|Snapchat|TikTok|Twitter|Line)/i.test(ua);
     setInAppBrowser(isInApp);
+
+    if (isInApp) {
+      const appUrl = window.location.href;
+
+      if (/iphone|ipad|ipod/i.test(ua)) {
+        // iOS → Try to open Safari directly
+        window.location.href = `x-web-search://?${appUrl}`;
+      } else if (/android/i.test(ua)) {
+        // Android → Try to open Chrome directly
+        const intentUrl = `intent://${appUrl.replace(/^https?:\/\//, "")}#Intent;scheme=https;package=com.android.chrome;end`;
+        window.location.href = intentUrl;
+      }
+
+      // ⏳ If automatic redirect doesn’t work within 2s, show the popup
+      setTimeout(() => {
+        setShowPopup(true);
+      }, 2000);
+    }
   }, []);
 
-  // ✅ Google login (works in normal browsers only)
+  // ✅ Start Google sign-in normally (outside in-app browsers)
   const handleGoogleLogin = async () => {
     try {
       await supabase.auth.signInWithOAuth({
@@ -25,22 +43,14 @@ export default function Login() {
     }
   };
 
-  // ✅ Modal button actions
-  const openInSafari = () => {
-    window.location.href = window.location.href.replace(/^https?:\/\//, "http://");
-    setTimeout(() => {
-      alert("If it didn't open automatically, tap Share → Open in Safari.");
-    }, 1000);
-  };
-
-  const openInChrome = () => {
-    const url = window.location.href.replace(/^https?:\/\//, "");
-    window.location.href = `intent://${url}#Intent;scheme=https;package=com.android.chrome;end`;
-  };
-
-  const copyLink = () => {
-    navigator.clipboard.writeText(window.location.href);
-    alert("Link copied! Paste it in Chrome or Safari.");
+  // ✅ Copy link to clipboard
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      alert("✅ Link copied! Open Safari or Chrome and paste it to continue.");
+    } catch {
+      alert("Copy failed. Please copy the URL manually.");
+    }
   };
 
   return (
@@ -58,7 +68,6 @@ export default function Login() {
         fontFamily: "Poppins, sans-serif",
         textAlign: "center",
         padding: "20px",
-        position: "relative",
       }}
     >
       <Image
@@ -94,89 +103,53 @@ export default function Login() {
         </button>
       )}
 
-      {/* ✅ Popup modal for Snapchat / Instagram / TikTok */}
-      {inAppBrowser && (
+      {/* ⚠️ Popup for in-app browsers */}
+      {showPopup && (
         <div
           style={{
             position: "fixed",
-            inset: 0,
-            backgroundColor: "rgba(0,0,0,0.7)",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            background: "rgba(0,0,0,0.7)",
             display: "flex",
-            alignItems: "center",
             justifyContent: "center",
+            alignItems: "center",
             zIndex: 9999,
           }}
         >
           <div
             style={{
-              background: "rgba(255,255,255,0.15)",
-              backdropFilter: "blur(10px)",
-              borderRadius: "18px",
-              padding: "25px 22px",
-              width: "90%",
-              maxWidth: "380px",
+              background: "rgba(255,255,255,0.95)",
+              color: "#333",
+              padding: "25px",
+              borderRadius: "16px",
               textAlign: "center",
-              color: "#fff",
-              boxShadow: "0 8px 25px rgba(0,0,0,0.3)",
+              width: "90%",
+              maxWidth: "360px",
+              boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
             }}
           >
-            <h2 style={{ marginBottom: "10px", fontSize: "1.4rem" }}>
-              ⚠️ Open in Browser
-            </h2>
-            <p style={{ opacity: 0.9, marginBottom: "20px", fontSize: "1rem" }}>
-              Google login isn’t supported inside this app.  
-              Please open Chain in a secure browser to continue.
+            <h2 style={{ marginBottom: "10px", color: "#764ba2" }}>Open in Browser</h2>
+            <p style={{ fontSize: "0.95rem", marginBottom: "20px" }}>
+              Google login doesn’t work inside Snapchat or Instagram.  
+              Please open this page in <strong>Safari</strong> or <strong>Chrome</strong>.
             </p>
-
-            {/(iphone|ipad|ipod)/i.test(userAgent) ? (
-              <button
-                onClick={openInSafari}
-                style={{
-                  background: "#fff",
-                  color: "#764ba2",
-                  padding: "12px 22px",
-                  border: "none",
-                  borderRadius: "30px",
-                  fontSize: "1rem",
-                  fontWeight: 600,
-                  marginBottom: "10px",
-                  width: "100%",
-                }}
-              >
-                Open in Safari
-              </button>
-            ) : /(android)/i.test(userAgent) ? (
-              <button
-                onClick={openInChrome}
-                style={{
-                  background: "#fff",
-                  color: "#764ba2",
-                  padding: "12px 22px",
-                  border: "none",
-                  borderRadius: "30px",
-                  fontSize: "1rem",
-                  fontWeight: 600,
-                  marginBottom: "10px",
-                  width: "100%",
-                }}
-              >
-                Open in Chrome
-              </button>
-            ) : null}
-
             <button
               onClick={copyLink}
               style={{
-                background: "rgba(255,255,255,0.2)",
+                background: "#764ba2",
                 color: "#fff",
+                border: "none",
+                borderRadius: "25px",
                 padding: "10px 20px",
-                border: "1px solid rgba(255,255,255,0.3)",
-                borderRadius: "30px",
                 fontSize: "0.95rem",
-                width: "100%",
+                fontWeight: 600,
+                cursor: "pointer",
               }}
             >
-              Copy link instead
+              Copy Link
             </button>
           </div>
         </div>
