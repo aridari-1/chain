@@ -1,13 +1,13 @@
-name: Rolling 24-Hour Global Chain
+name: Daily Global Chain (Rolling 24h)
 
 on:
   schedule:
-    # Run every hour to check if 24 h have passed since the last chain
-    - cron: "0 * * * *"
-  workflow_dispatch:  # allows manual trigger too
+    # Run every 10 minutes to check if 24h passed
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
 
 jobs:
-  check-and-create-chain:
+  create-chain-and-clean-old:
     runs-on: ubuntu-latest
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -18,14 +18,16 @@ jobs:
         id: latest
         run: |
           set -e
+          echo "🔍 Fetching the latest active global chain..."
           LATEST_JSON=$(curl -fsS \
             "$SUPABASE_URL/rest/v1/chains?type=eq.global&order=created_at.desc&limit=1" \
             -H "apikey: $SERVICE_KEY" \
             -H "Authorization: Bearer $SERVICE_KEY" \
             -H "Accept: application/json")
           echo "latest_json=$LATEST_JSON" >> $GITHUB_OUTPUT
+          echo "✅ Latest chain fetched."
 
-      - name: Determine if 24 h have passed
+      - name: Determine if we need to create a new chain
         id: decide
         run: |
           set -e
@@ -37,7 +39,7 @@ jobs:
               if (!latest) return true;
               const createdAt = new Date(latest.created_at).getTime();
               const now = Date.now();
-              return (now - createdAt) >= 24*60*60*1000;
+              return (now - createdAt) >= 24 * 60 * 60 * 1000;
             })();
             const id = latest?.id || '';
             console.log('needsNew=' + needsNew);
@@ -46,28 +48,47 @@ jobs:
 
           NEEDS_NEW=$(grep '^needsNew=' decide.log | cut -d= -f2)
           CURR_ID=$(grep '^currentId=' decide.log | cut -d= -f2)
-
           echo "needs_new=$NEEDS_NEW" >> $GITHUB_OUTPUT
           echo "current_id=$CURR_ID"  >> $GITHUB_OUTPUT
 
-      - name: Create new chain if 24 h passed
+      - name: Attempt to create new global chain (with full response)
         if: steps.decide.outputs.needs_new == 'true'
+        id: create
         run: |
           set -e
-          echo "24 h have passed since last chain — creating new one…"
-
-          # 1️⃣ Deactivate all old chains
-          curl -fsS -X PATCH \
-            "$SUPABASE_URL/rest/v1/chains?type=eq.global" \
-            -H "apikey: $SERVICE_KEY" \
-            -H "Authorization: Bearer $SERVICE_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{"active": false}'
-
-          # 2️⃣ Create new active chain
-          curl -fsS -X POST \
+          echo "📡 Attempting to create a new global chain..."
+          RESPONSE=$(curl -i -X POST \
             "$SUPABASE_URL/rest/v1/chains" \
             -H "apikey: $SERVICE_KEY" \
             -H "Authorization: Bearer $SERVICE_KEY" \
             -H "Content-Type: application/json" \
-            --data '{"type":"global","max_clips":null,"creator_id":null,"active":true}'
+            -H "Prefer: return=representation" \
+            --data '{"type":"global","max_clips":null,"creator_id":null,"active":true}')
+          echo "✅ Response from Supabase:"
+          echo "$RESPONSE"
+
+      - name: Resolve current chain id
+        id: resolve
+        run: |
+          set -e
+          NEW_ID='${{ steps.create.outputs.new_chain_id }}'
+          CURR_ID='${{ steps.decide.outputs.current_id }}'
+          if [ -n "$NEW_ID" ]; then
+            echo "chain_id=$NEW_ID" >> $GITHUB_OUTPUT
+          else
+            echo "chain_id=$CURR_ID" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deactivate older chains (keep only the latest)
+        if: steps.resolve.outputs.chain_id != ''
+        run: |
+          set -e
+          CHAIN_ID='${{ steps.resolve.outputs.chain_id }}'
+          echo "🧹 Deactivating older chains..."
+          curl -i -X PATCH \
+            "$SUPABASE_URL/rest/v1/chains?type=eq.global&id=neq.$CHAIN_ID" \
+            -H "apikey: $SERVICE_KEY" \
+            -H "Authorization: Bearer $SERVICE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"active": false}'
+          echo "✅ Old chains deactivated."
