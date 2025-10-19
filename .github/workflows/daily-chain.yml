@@ -1,4 +1,4 @@
-name: Daily Global Chain (Rolling 24h SQL)
+name: Daily Global Chain (Rolling 24h RPC)
 
 on:
   schedule:
@@ -52,7 +52,7 @@ jobs:
           echo "current_id=$CURR_ID"  >> $GITHUB_OUTPUT
           echo "Decision: needs_new=$NEEDS_NEW"
 
-           - name: Create new global chain via RPC function
+      - name: Create new global chain via RPC function
         if: steps.decide.outputs.needs_new == 'true'
         id: create
         run: |
@@ -72,7 +72,6 @@ jobs:
           fi
           echo "✅ Chain created successfully via RPC."
           exit 0
-
 
       - name: Verify new active chain
         run: |
