@@ -52,28 +52,27 @@ jobs:
           echo "current_id=$CURR_ID"  >> $GITHUB_OUTPUT
           echo "Decision: needs_new=$NEEDS_NEW"
 
-      - name: Force create new global chain via SQL
+           - name: Create new global chain via RPC function
         if: steps.decide.outputs.needs_new == 'true'
         id: create
         run: |
           set -e
-          echo "🧠 Executing SQL directly on Supabase..."
-          SQL="update public.chains set active = false where type = 'global'; insert into public.chains (type, max_clips, creator_id, active) values ('global', null, null, true);"
+          echo "🧠 Calling Supabase RPC to create global chain..."
           RESPONSE=$(curl -s -o response.json -w "%{http_code}" \
-            -X POST "$SUPABASE_URL/rest/v1/rpc/execute_sql" \
+            -X POST "$SUPABASE_URL/rest/v1/rpc/create_global_chain" \
             -H "apikey: $SERVICE_KEY" \
             -H "Authorization: Bearer $SERVICE_KEY" \
-            -H "Content-Type: application/json" \
-            --data "{\"sql\": \"$SQL\"}")
+            -H "Content-Type: application/json")
           STATUS=$(tail -n1 response.json)
           echo "HTTP status: $STATUS"
           cat response.json
           if [ "$STATUS" -ge 400 ]; then
-            echo "❌ SQL execution failed with $STATUS"
+            echo "❌ RPC call failed with $STATUS"
             exit 1
           fi
-          echo "✅ Chain created successfully via SQL."
+          echo "✅ Chain created successfully via RPC."
           exit 0
+
 
       - name: Verify new active chain
         run: |
