@@ -52,28 +52,29 @@ jobs:
           echo "current_id=$CURR_ID"  >> $GITHUB_OUTPUT
           echo "Decision: needs_new=$NEEDS_NEW"
 
-      - name: Attempt to create new global chain (with full response)
+           - name: Attempt to create new global chain (stable version)
         if: steps.decide.outputs.needs_new == 'true'
         id: create
         run: |
           set -e
-          echo "📡 Attempting to create a new global chain..."
-          RESPONSE=$(curl -s -o response.txt -w "%{http_code}" \
+          echo "📡 Creating a new global chain..."
+          RESPONSE=$(curl --max-time 15 -s -o response.json -w "%{http_code}" \
             -X POST "$SUPABASE_URL/rest/v1/chains" \
             -H "apikey: $SERVICE_KEY" \
             -H "Authorization: Bearer $SERVICE_KEY" \
             -H "Content-Type: application/json" \
             -H "Prefer: return=representation" \
             --data '{"type":"global","max_clips":null,"creator_id":null,"active":true}')
-          STATUS=$(tail -n1 response.txt)
+          STATUS=$(tail -n1 response.json)
           echo "HTTP status: $STATUS"
-          echo "✅ Response body:"
-          cat response.txt
+          cat response.json
           if [ "$STATUS" -ge 400 ]; then
-            echo "❌ Chain creation failed with status $STATUS"
+            echo "❌ Request failed with $STATUS"
             exit 1
           fi
-          echo "✅ Chain creation successful."
+          echo "✅ Chain creation completed."
+          exit 0
+
 
       - name: Deactivate older chains (keep only the latest)
         run: |
