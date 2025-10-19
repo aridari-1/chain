@@ -52,7 +52,7 @@ jobs:
           echo "current_id=$CURR_ID"  >> $GITHUB_OUTPUT
           echo "Decision: needs_new=$NEEDS_NEW"
 
-           - name: Attempt to create new global chain (stable version)
+      - name: Attempt to create new global chain (stable version)
         if: steps.decide.outputs.needs_new == 'true'
         id: create
         run: |
@@ -74,7 +74,6 @@ jobs:
           fi
           echo "✅ Chain creation completed."
           exit 0
-
 
       - name: Deactivate older chains (keep only the latest)
         run: |
