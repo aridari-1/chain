@@ -4,39 +4,34 @@ import Image from "next/image";
 
 export default function Login() {
   const [inAppBrowser, setInAppBrowser] = useState(false);
+  const [showPopup, setShowPopup] = useState(false);
 
-  // ✅ Detect if inside Snapchat, Instagram, TikTok, etc.
+  // ✅ Detect if user is inside Snapchat, Instagram, TikTok, etc.
   useEffect(() => {
     const ua = navigator.userAgent || navigator.vendor || window.opera;
     const isInApp = /(FBAN|FBAV|Instagram|Snapchat|TikTok|Twitter|Line)/i.test(ua);
     setInAppBrowser(isInApp);
 
     if (isInApp) {
-      // ✅ Automatically try to open in Safari or Chrome
       const appUrl = window.location.href;
 
       if (/iphone|ipad|ipod/i.test(ua)) {
-        // iOS → open in Safari directly
+        // iOS → Try to open Safari directly
         window.location.href = `x-web-search://?${appUrl}`;
-        setTimeout(() => {
-          alert("Please tap the Share button → 'Open in Safari' to continue.");
-        }, 1000);
       } else if (/android/i.test(ua)) {
-        // Android → show the native browser chooser
+        // Android → Try to open Chrome directly
         const intentUrl = `intent://${appUrl.replace(/^https?:\/\//, "")}#Intent;scheme=https;package=com.android.chrome;end`;
         window.location.href = intentUrl;
-
-        setTimeout(() => {
-          alert("If not prompted, tap ⋮ → 'Open in Chrome' to continue.");
-        }, 2000);
-      } else {
-        // Other devices fallback
-        alert("Please open this link in Safari or Chrome to log in.");
       }
+
+      // ⏳ If automatic redirect doesn’t work within 2s, show the popup
+      setTimeout(() => {
+        setShowPopup(true);
+      }, 2000);
     }
   }, []);
 
-  // ✅ Start Google sign-in normally when not in in-app browser
+  // ✅ Start Google sign-in normally (outside in-app browsers)
   const handleGoogleLogin = async () => {
     try {
       await supabase.auth.signInWithOAuth({
@@ -45,6 +40,16 @@ export default function Login() {
       });
     } catch (err) {
       console.error("Google sign-in error:", err);
+    }
+  };
+
+  // ✅ Copy link to clipboard
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      alert("✅ Link copied! Open Safari or Chrome and paste it to continue.");
+    } catch {
+      alert("Copy failed. Please copy the URL manually.");
     }
   };
 
@@ -74,7 +79,7 @@ export default function Login() {
       />
       <h1 style={{ fontSize: "2rem", marginBottom: "10px" }}>Welcome to Chain</h1>
       <p style={{ opacity: 0.9, marginBottom: "30px" }}>
-       
+        Login with Google to join the global voice chain
       </p>
 
       {!inAppBrowser && (
@@ -96,6 +101,58 @@ export default function Login() {
         >
           Continue with Google
         </button>
+      )}
+
+      {/* ⚠️ Popup for in-app browsers */}
+      {showPopup && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            background: "rgba(0,0,0,0.7)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 9999,
+          }}
+        >
+          <div
+            style={{
+              background: "rgba(255,255,255,0.95)",
+              color: "#333",
+              padding: "25px",
+              borderRadius: "16px",
+              textAlign: "center",
+              width: "90%",
+              maxWidth: "360px",
+              boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
+            }}
+          >
+            <h2 style={{ marginBottom: "10px", color: "#764ba2" }}>Open in Browser</h2>
+            <p style={{ fontSize: "0.95rem", marginBottom: "20px" }}>
+              Google login doesn’t work inside Snapchat or Instagram.  
+              Please open this page in <strong>Safari</strong> or <strong>Chrome</strong>.
+            </p>
+            <button
+              onClick={copyLink}
+              style={{
+                background: "#764ba2",
+                color: "#fff",
+                border: "none",
+                borderRadius: "25px",
+                padding: "10px 20px",
+                fontSize: "0.95rem",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Copy Link
+            </button>
+          </div>
+        </div>
       )}
 
       <style>{`
