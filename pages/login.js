@@ -74,7 +74,7 @@ export default function Login() {
       />
       <h1 style={{ fontSize: "2rem", marginBottom: "10px" }}>Welcome to Chain</h1>
       <p style={{ opacity: 0.9, marginBottom: "30px" }}>
-        Login with Google to join the global voice chain
+       
       </p>
 
       {!inAppBrowser && (
